@@ -4,13 +4,14 @@ mod clock;
 mod render;
 
 use crate::render::Renderer;
-use crate::clock::Clock;
+use crate::clock::{Clock, EventsPerSecondTracker, ApproximateTimer};
 
 use sdl2::{Sdl, VideoSubsystem, EventPump};
 use sdl2::event::Event;
 use sdl2::video::Window;
 use std::error::Error;
 use std::fmt::{self, Display, Formatter};
+use std::time::Duration;
 
 
 #[derive(Debug)]
@@ -66,6 +67,8 @@ fn make_window(sdl: &SdlEnv, title: &str, width: u32, height: u32) -> Result<Win
 fn main_loop(window: &Window, event_pump: &mut EventPump) -> Result<(), SdlError> {
     let mut renderer = Renderer::new();
     let mut clock = Clock::new();
+    let mut fps_tracker = EventsPerSecondTracker::new();
+    let mut approximate_timer = ApproximateTimer::new(Duration::from_secs(1));
 
     loop {
         for event in event_pump.poll_iter() {
@@ -76,8 +79,13 @@ fn main_loop(window: &Window, event_pump: &mut EventPump) -> Result<(), SdlError
         }
 
         renderer.render(window.surface(event_pump)?)?;
-        clock.tick(60.0);
-        //thread::sleep(Duration::from_secs_f64(1f64 / 60f64));
+        fps_tracker.event();
+        let tick_duration = clock.tick(60.0);
+        if approximate_timer.update(tick_duration) != 0 {
+            let fps = fps_tracker.mean();
+            fps_tracker.reset();
+            println!("FPS: {}", fps);
+        }
     }
 }
 
