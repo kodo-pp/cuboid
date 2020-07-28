@@ -1,15 +1,17 @@
 extern crate sdl2;
 
+mod clock;
+mod render;
+
+use crate::render::Renderer;
+use crate::clock::Clock;
+
 use sdl2::{Sdl, VideoSubsystem, EventPump};
 use sdl2::event::Event;
 use sdl2::video::Window;
 use std::error::Error;
-use std::thread;
-use std::time::Duration;
 use std::fmt::{self, Display, Formatter};
 
-mod render;
-use render::Renderer;
 
 #[derive(Debug)]
 pub struct SdlError {
@@ -63,6 +65,8 @@ fn make_window(sdl: &SdlEnv, title: &str, width: u32, height: u32) -> Result<Win
 
 fn main_loop(window: &Window, event_pump: &mut EventPump) -> Result<(), SdlError> {
     let mut renderer = Renderer::new();
+    let mut clock = Clock::new();
+
     loop {
         for event in event_pump.poll_iter() {
             match event {
@@ -72,6 +76,7 @@ fn main_loop(window: &Window, event_pump: &mut EventPump) -> Result<(), SdlError
         }
 
         renderer.render(window.surface(event_pump)?)?;
+        clock.tick(60.0);
         //thread::sleep(Duration::from_secs_f64(1f64 / 60f64));
     }
 }
