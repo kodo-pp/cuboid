@@ -13,7 +13,7 @@ impl Clock {
     }
 
     pub fn tick(&mut self, ticks_per_second: f64) -> Duration {
-        if ticks_per_second.is_infinite() || ticks_per_second < 0.0 {
+        if ticks_per_second.is_infinite() || ticks_per_second <= 0.0 {
             panic!("Invalid `ticks_per_second` ({:?}): must be finite and positive", ticks_per_second);
         }
 
