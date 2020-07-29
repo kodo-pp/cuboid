@@ -2,6 +2,7 @@ extern crate sdl2;
 
 mod clock;
 mod render;
+mod geometry;
 
 use crate::render::Renderer;
 use crate::clock::{Clock, EventsPerSecondTracker, ApproximateTimer};
@@ -80,7 +81,7 @@ fn main_loop(window: &Window, event_pump: &mut EventPump) -> Result<(), SdlError
 
         renderer.render(window.surface(event_pump)?)?;
         fps_tracker.event();
-        let tick_duration = clock.tick(60.0);
+        let tick_duration = clock.tick(6000.0);
         if approximate_timer.update(tick_duration) != 0 {
             let fps = fps_tracker.mean();
             fps_tracker.reset();
