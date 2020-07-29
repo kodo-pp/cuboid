@@ -35,11 +35,14 @@ impl Renderer {
     }
 
     fn render_pixels<'a>(context: &mut RenderContext<'a>) {
-        let a = Point {x: 50, y: 100};
-        let b = Point {x: 200, y: 500};
-        let c = Point {x: 700, y: 400};
-        let tri = Triangle {a, b, c};
-        context.fill_triangle(tri, RGB {r: 255, g: 0, b: 0});
+        for i in 1..10000 { 
+            let base_x = i % 777;
+            let base_y = (71 * i) % 555;
+            let a = Point{x: base_x, y: base_y};
+            let b = Point{x: base_x + 4, y: base_y + 8};
+            let c = Point{x: base_x + 10, y: base_y + 4};
+            context.fill_triangle(Triangle {a, b, c}, RGB::new((i % 255) as u8, 255, 0)); 
+        }
         /*
         context.fill_glued_triangle(
             GluedTriangle {
@@ -58,9 +61,15 @@ impl Renderer {
 
 #[derive(Debug, Copy, Clone, Eq, PartialEq)]
 struct RGB {
-    r: u8,
-    g: u8,
-    b: u8,
+    pub b: u8,
+    pub g: u8,
+    pub r: u8,
+}
+
+impl RGB {
+    pub fn new(r: u8, g: u8, b: u8) -> RGB {
+        RGB { r, g, b }
+    }
 }
 
 
@@ -106,12 +115,12 @@ impl RenderContext<'_> {
         let  left_line = Line::from_points(glued_tri.horizontal_segment.left(),  glued_tri.free_point);
         let right_line = Line::from_points(glued_tri.horizontal_segment.right(), glued_tri.free_point);
 
-        for y in min..max {
+        for y in (min.max(0))..(max.min(self.height as i32)) {
             let horizontal_line = Line::horizontal(y);
             let  left_isect = horizontal_line.intersect(left_line);
             let right_isect = horizontal_line.intersect(right_line);
 
-            for x in (left_isect.x)..(right_isect.x) {
+            for x in (left_isect.x.max(0))..(right_isect.x.min(self.width as i32)) {
                 self.set(x as u32, y as u32, value);
             }
         }
