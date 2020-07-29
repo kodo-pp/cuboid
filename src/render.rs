@@ -43,18 +43,6 @@ impl Renderer {
             let c = Point{x: base_x + 10, y: base_y + 4};
             context.fill_triangle(Triangle {a, b, c}, RGB::new((i % 255) as u8, 255, 0)); 
         }
-        /*
-        context.fill_glued_triangle(
-            GluedTriangle {
-                horizontal_segment: HorizontalSegment::from_points(
-                    Point {x: 100, y: 100},
-                    Point {x: 700, y: 100}
-                ),
-                free_point: Point {x: 600, y: 500},
-            },
-            RGB {r: 255, g: 0, b: 0}
-        );
-        */
     }
 }
 
