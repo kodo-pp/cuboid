@@ -5,7 +5,8 @@ mod clock;
 mod render;
 mod geometry;
 
-use crate::render::Renderer;
+use crate::geometry::{Point, Triangle};
+use crate::render::{Rasterizer, Rasterize, RGB};
 use crate::clock::{Clock, EventsPerSecondTracker, ApproximateTimer};
 
 use sdl2::{Sdl, VideoSubsystem, EventPump};
@@ -67,10 +68,11 @@ fn make_window(sdl: &SdlEnv, title: &str, width: u32, height: u32) -> Result<Win
 
 
 fn main_loop(window: &Window, event_pump: &mut EventPump) -> Result<(), SdlError> {
-    let mut renderer = Renderer::new();
     let mut clock = Clock::new();
     let mut fps_tracker = EventsPerSecondTracker::new();
     let mut approximate_timer = ApproximateTimer::new(Duration::from_secs(1));
+
+    let triangles = Triangles{};
 
     loop {
         for event in event_pump.poll_iter() {
@@ -80,7 +82,7 @@ fn main_loop(window: &Window, event_pump: &mut EventPump) -> Result<(), SdlError
             }
         }
 
-        renderer.render(window.surface(event_pump)?)?;
+        render::render_frame(&triangles, window.surface(event_pump)?)?;
         fps_tracker.event();
         let tick_duration = clock.tick(6000.0);
         if approximate_timer.update(tick_duration) != 0 {
@@ -100,4 +102,21 @@ fn main() -> Result<(), Box<dyn Error>> {
     main_loop(&window, &mut event_pump)?;
 
     Ok(())
+}
+
+
+struct Triangles {}
+
+
+impl Rasterize for Triangles {
+    fn rasterize<'a>(&self, rasterizer: &mut Rasterizer<'a>) {
+        for i in 1..10000 { 
+            let base_x = i % 777;
+            let base_y = (71 * i) % 555;
+            let a = Point{x: base_x, y: base_y};
+            let b = Point{x: base_x + 4, y: base_y + 8};
+            let c = Point{x: base_x + 10, y: base_y + 4};
+            rasterizer.fill_triangle(Triangle {a, b, c}, RGB::new((i % 255) as u8, 255, 0)); 
+        }
+    }
 }

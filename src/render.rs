@@ -1,4 +1,4 @@
-use crate::geometry::{Point, Triangle, Line, HorizontalSegment, GluedTriangle, Triangular};
+use crate::geometry::{Triangle, Line, HorizontalSegment, GluedTriangle, Triangular};
 use super::SdlError;
 
 use sdl2::pixels::Color;
@@ -6,49 +6,35 @@ use sdl2::pixels::PixelFormatEnum;
 use sdl2::video::WindowSurfaceRef;
 use std::mem;
 
-pub struct Renderer {}
+pub fn render_frame<'a>(
+    renderable: &impl Rasterize,
+    mut surface_ref: WindowSurfaceRef<'a>
+) -> Result<(), SdlError> {
+    surface_ref.fill_rect(None, Color::BLACK)?;
+    let width = surface_ref.width();
+    let height = surface_ref.height();
 
-impl Renderer {
-    pub fn new() -> Renderer {
-        Renderer{}
+    let pixel_format_enum = surface_ref.pixel_format_enum();
+    match pixel_format_enum {
+        PixelFormatEnum::RGB888 | PixelFormatEnum::RGBA8888 | PixelFormatEnum::RGBX8888 => {},
+        _ => panic!("Unsupported pixel format: {:?}", pixel_format_enum),
     }
 
-    pub fn render<'a>(&mut self, mut surface_ref: WindowSurfaceRef<'a>) -> Result<(), SdlError> {
-        surface_ref.fill_rect(None, Color::BLACK)?;
-        let width = surface_ref.width();
-        let height = surface_ref.height();
-
-        let pixel_format_enum = surface_ref.pixel_format_enum();
-        match pixel_format_enum {
-            PixelFormatEnum::RGB888 | PixelFormatEnum::RGBA8888 | PixelFormatEnum::RGBX8888 => {},
-            _ => panic!("Unsupported pixel format: {:?}", pixel_format_enum),
-        }
-
-        let bpp = pixel_format_enum.byte_size_per_pixel();
-        assert_eq!(bpp, 4, "Non 4-byte pixels are not supported");
-        
-        surface_ref.with_lock_mut(|data| {
-            Renderer::render_pixels(&mut RenderContext { data, width, height })
-        });
-        surface_ref.finish()?;
-        Ok(())
-    }
-
-    fn render_pixels<'a>(context: &mut RenderContext<'a>) {
-        for i in 1..10000 { 
-            let base_x = i % 777;
-            let base_y = (71 * i) % 555;
-            let a = Point{x: base_x, y: base_y};
-            let b = Point{x: base_x + 4, y: base_y + 8};
-            let c = Point{x: base_x + 10, y: base_y + 4};
-            context.fill_triangle(Triangle {a, b, c}, RGB::new((i % 255) as u8, 255, 0)); 
-        }
-    }
+    let bpp = pixel_format_enum.byte_size_per_pixel();
+    assert_eq!(bpp, 4, "Non 4-byte pixels are not supported");
+    
+    surface_ref.with_lock_mut(|data| {
+        let mut rasterizer = Rasterizer::new(data, width, height);
+        let rasterizable = renderable;
+        rasterizable.rasterize(&mut rasterizer);
+    });
+    surface_ref.finish()?;
+    Ok(())
 }
 
 
 #[derive(Debug, Copy, Clone, Eq, PartialEq)]
-struct RGB {
+pub struct RGB {
     pub b: u8,
     pub g: u8,
     pub r: u8,
@@ -61,13 +47,17 @@ impl RGB {
 }
 
 
-struct RenderContext<'a> {
-    pub data: &'a mut [u8],
-    pub width: u32,
-    pub height: u32,
+pub struct Rasterizer<'a> {
+    data: &'a mut [u8],
+    width: u32,
+    height: u32,
 }
 
-impl RenderContext<'_> {
+impl Rasterizer<'_> {
+    pub fn new<'a>(data: &'a mut [u8], width: u32, height: u32) -> Rasterizer<'a> {
+        Rasterizer {data, width, height}
+    }
+
     #[inline]
     pub fn set(&mut self, x: u32, y: u32, value: RGB) {
         self.data[self.index_at(x, y, 0)] = value.b;
@@ -93,7 +83,7 @@ impl RenderContext<'_> {
         self.fill_glued_triangle(glued_bottom, value);
     }
 
-    fn fill_glued_triangle(&mut self, glued_tri: GluedTriangle, value: RGB) {
+    pub fn fill_glued_triangle(&mut self, glued_tri: GluedTriangle, value: RGB) {
         let mut min = glued_tri.horizontal_segment.y();
         let mut max = glued_tri.free_point.y;
         if min > max {
@@ -113,4 +103,9 @@ impl RenderContext<'_> {
             }
         }
     }
+}
+
+
+pub trait Rasterize {
+    fn rasterize<'a>(&self, rasterizer: &mut Rasterizer<'a>);
 }
