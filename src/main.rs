@@ -98,7 +98,7 @@ fn main_loop(window: &Window, event_pump: &mut EventPump) -> Result<(), SdlError
 
 fn main() -> Result<(), Box<dyn Error>> {
     let sdl_env = init_sdl()?;
-    let window = make_window(&sdl_env, "My fucking window", 800, 600)?;
+    let window = make_window(&sdl_env, "My window", 800, 600)?;
 
     let mut event_pump = sdl_env.context.event_pump()?;
     main_loop(&window, &mut event_pump)?;
