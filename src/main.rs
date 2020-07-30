@@ -4,10 +4,12 @@ extern crate gcd;
 mod clock;
 mod render;
 mod geometry;
+mod linalg;
 
-use crate::geometry::{Point, Point3d, BasicTriangle};
-use crate::render::{RGB, Render, Renderer};
+use crate::geometry::{Point, Point3d, BasicTriangle, Triangle};
+use crate::render::{RGB, Render, Renderer, TriangleFill};
 use crate::clock::{Clock, EventsPerSecondTracker, ApproximateTimer};
+use crate::linalg::{Basis, Matrix2d};
 
 use sdl2::{Sdl, VideoSubsystem, EventPump};
 use sdl2::event::Event;
@@ -122,6 +124,31 @@ impl Render for SpinningTriangle {
         let b = Point3d {x:  100.0 * t.cos(), y: -30.0, z: 200.0 + 100.0 * t.sin()};
         let c = Point3d {x: -100.0 * t.cos(), y:  30.0, z: 200.0 - 100.0 * t.sin()};
         let triangle = BasicTriangle::new(a, b, c);
-        renderer.fill_triangle(triangle, &|Point {x, y}| RGB::new((x % 256) as u8, (y % 256) as u8, 255u8));
+        renderer.fill_triangle::<GradientTriangleFiller>(triangle);
     }
+}
+
+
+struct GradientTriangleFiller {
+    origin: Point,
+    basis: Basis<f64>,
+}
+
+impl TriangleFill for GradientTriangleFiller {
+    fn new(tri: Triangle) -> GradientTriangleFiller {
+        GradientTriangleFiller {origin: tri.a, basis: triangle_to_basis(tri)}
+    }
+
+    fn color(&self, point: Point) -> RGB {
+        let (ix, jy) = self.basis.coords_of((point - self.origin).map(&|x| x as f64));
+        RGB::new((ix * 200.0) as u8, (jy * 200.0) as u8, 200)
+    }
+}
+
+
+fn triangle_to_basis(tri: Triangle) -> Basis<f64> {
+    let u = (tri.b - tri.a).map(&|x| x as f64);
+    let v = (tri.c - tri.a).map(&|x| x as f64);
+    let matrix = Matrix2d::from_columns(u.into(), v.into());
+    Basis::new(matrix)
 }

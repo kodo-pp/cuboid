@@ -152,12 +152,13 @@ impl Renderer<'_> {
         }
     }
     
-    pub fn fill_triangle(&mut self, tri: BasicTriangle<Point3d>, color_func: &impl Fn(Point) -> RGB) {
+    pub fn fill_triangle<Filler: TriangleFill>(&mut self, tri: BasicTriangle<Point3d>) {
         let (a, _da) = self.translate(tri.a);
         let (b, _db) = self.translate(tri.b);
         let (c, _dc) = self.translate(tri.c);
         if let Some(triangle_on_screen) = Triangle::try_new(a, b, c) {
-            self.rasterizer.fill_triangle(triangle_on_screen, color_func);
+            let mut filler = Filler::new(triangle_on_screen);
+            self.rasterizer.fill_triangle(triangle_on_screen, &mut filler);
         }
     }
 
@@ -192,7 +193,7 @@ impl Rasterizer<'_> {
         ((self.width * y + x) * 4 + component) as usize
     }
 
-    pub fn fill_triangle(&mut self, tri: Triangle, color_func: &impl Fn(Point) -> RGB) {
+    pub fn fill_triangle(&mut self, tri: Triangle, filler: &mut impl TriangleFill) {
         let (a, b, c) = tri.ysort();
         let line_hb = Line::horizontal(b.y);
         let line_ac = Line::from_points(a, c);
@@ -200,14 +201,14 @@ impl Rasterizer<'_> {
         let horizontal_segment = HorizontalSegment::from_points(b, split_point);
 
         if let Some(glued_top) = GluedTriangle::try_new(horizontal_segment, a) {
-            self.fill_glued_triangle(glued_top, color_func);
+            self.fill_glued_triangle(glued_top, filler);
         }
         if let Some(glued_bottom) = GluedTriangle::try_new(horizontal_segment, c) {
-            self.fill_glued_triangle(glued_bottom, color_func);
+            self.fill_glued_triangle(glued_bottom, filler);
         }
     }
 
-    pub fn fill_glued_triangle(&mut self, glued_tri: GluedTriangle, color_func: &impl Fn(Point) -> RGB) {
+    pub fn fill_glued_triangle(&mut self, glued_tri: GluedTriangle, filler: &mut impl TriangleFill) {
         let mut min = glued_tri.horizontal_segment.y();
         let mut max = glued_tri.free_point.y;
         if min > max {
@@ -223,7 +224,7 @@ impl Rasterizer<'_> {
             let right_isect = horizontal_line.intersect(right_line);
 
             for x in (left_isect.x.max(0))..(right_isect.x.min(self.width as i32)) {
-                self.set(x as u32, y as u32, color_func(Point {x, y}));
+                self.set(x as u32, y as u32, filler.color(Point {x, y}));
             }
         }
     }
@@ -237,4 +238,10 @@ pub trait Render {
 
 pub trait Rasterize {
     fn rasterize<'a>(&self, rasterizer: &mut Rasterizer<'a>);
+}
+
+
+pub trait TriangleFill {
+    fn new(tri: Triangle) -> Self;
+    fn color(&self, point: Point) -> RGB;
 }

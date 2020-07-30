@@ -13,6 +13,12 @@ pub struct BasicPoint<T> {
 
 pub type Point = BasicPoint<i32>;
 
+impl<T: Copy> BasicPoint<T> {
+    pub fn as_vector(self) -> BasicVector<T> {
+        BasicVector {x: self.x, y: self.y}
+    }
+}
+
 impl<O, B, A: Add<B, Output = O>> Add<BasicVector<B>> for BasicPoint<A> {
     type Output = BasicPoint<O>;
 
@@ -42,6 +48,27 @@ impl<O, B, A: Sub<B, Output = O>> Sub<BasicVector<B>> for BasicPoint<A> {
 pub struct BasicVector<T> {
     pub x: T,
     pub y: T,
+}
+
+impl<T> BasicVector<T> {
+    pub fn map<P>(self, func: &impl Fn(T) -> P) -> BasicVector<P> {
+        BasicVector {
+            x: func(self.x),
+            y: func(self.y),
+        }
+    }
+}
+
+impl<T> Into<(T, T)> for BasicVector<T> {
+    fn into(self) -> (T, T) {
+        (self.x, self.y)
+    }
+}
+
+impl<T> From<(T, T)> for BasicVector<T> {
+    fn from(tuple: (T, T)) -> BasicVector<T> {
+        BasicVector {x: tuple.0, y: tuple.1}
+    }
 }
 
 impl<O, B, A: Add<B, Output = O>> Add<BasicVector<B>> for BasicVector<A> {
