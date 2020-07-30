@@ -186,6 +186,7 @@ pub struct GluedTriangle {
 }
 
 impl GluedTriangle {
+    #[allow(dead_code)]
     pub fn new(horizontal_segment: HorizontalSegment, free_point: Point) -> GluedTriangle {
         GluedTriangle::try_new(horizontal_segment, free_point)
             .expect("GluedTriangle's free point cannot lie on the same line as its horizontal segment")
