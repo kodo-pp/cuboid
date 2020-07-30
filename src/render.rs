@@ -105,8 +105,8 @@ impl Camera {
         let vertical_angle = vertical_angle - self.vertical_angle;
         let azimuth = (azimuth - self.azimuth).into_plus_minus_pi_interval();
         // Transform angles to 2D coordinates
-        let coord_x = vertical_angle / self.vfov + 0.5;
-        let coord_y = azimuth / self.vfov + 0.5;
+        let coord_x = azimuth / self.hfov + 0.5;
+        let coord_y = vertical_angle / self.vfov + 0.5;
         (BasicPoint{x: coord_x, y: coord_y}, vector.norm())
     }
 }
@@ -152,12 +152,12 @@ impl Renderer<'_> {
         }
     }
     
-    pub fn fill_triangle(&mut self, tri: BasicTriangle<Point3d>, color: RGB) {
+    pub fn fill_triangle(&mut self, tri: BasicTriangle<Point3d>, color_func: &impl Fn(Point) -> RGB) {
         let (a, _da) = self.translate(tri.a);
         let (b, _db) = self.translate(tri.b);
         let (c, _dc) = self.translate(tri.c);
         if let Some(triangle_on_screen) = Triangle::try_new(a, b, c) {
-            self.rasterizer.fill_triangle(triangle_on_screen, color);
+            self.rasterizer.fill_triangle(triangle_on_screen, color_func);
         }
     }
 
@@ -196,7 +196,7 @@ impl Rasterizer<'_> {
         ((self.width * y + x) * 4 + component) as usize
     }
 
-    pub fn fill_triangle(&mut self, tri: Triangle, value: RGB) {
+    pub fn fill_triangle(&mut self, tri: Triangle, color_func: &impl Fn(Point) -> RGB) {
         let (a, b, c) = tri.ysort();
         let line_hb = Line::horizontal(b.y);
         let line_ac = Line::from_points(a, c);
@@ -204,14 +204,14 @@ impl Rasterizer<'_> {
         let horizontal_segment = HorizontalSegment::from_points(b, split_point);
 
         if let Some(glued_top) = GluedTriangle::try_new(horizontal_segment, a) {
-            self.fill_glued_triangle(glued_top, value);
+            self.fill_glued_triangle(glued_top, color_func);
         }
         if let Some(glued_bottom) = GluedTriangle::try_new(horizontal_segment, c) {
-            self.fill_glued_triangle(glued_bottom, value);
+            self.fill_glued_triangle(glued_bottom, color_func);
         }
     }
 
-    pub fn fill_glued_triangle(&mut self, glued_tri: GluedTriangle, value: RGB) {
+    pub fn fill_glued_triangle(&mut self, glued_tri: GluedTriangle, color_func: &impl Fn(Point) -> RGB) {
         let mut min = glued_tri.horizontal_segment.y();
         let mut max = glued_tri.free_point.y;
         if min > max {
@@ -227,7 +227,7 @@ impl Rasterizer<'_> {
             let right_isect = horizontal_line.intersect(right_line);
 
             for x in (left_isect.x.max(0))..(right_isect.x.min(self.width as i32)) {
-                self.set(x as u32, y as u32, value);
+                self.set(x as u32, y as u32, color_func(Point {x, y}));
             }
         }
     }

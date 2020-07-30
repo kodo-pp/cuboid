@@ -118,27 +118,10 @@ impl SpinningTriangle {
 impl Render for SpinningTriangle {
     fn render<'a>(&self, renderer: &mut Renderer<'a>) {
         let t = self.origin.elapsed().as_secs_f64();
-        let a = Point3d {x:  100.0, y:  30.0 * t.cos(), z: 200.0 + 30.0 * t.sin()};
-        let b = Point3d {x:  100.0, y: -30.0 * t.cos(), z: 200.0 + 30.0 * t.sin()};
-        let c = Point3d {x: -100.0, y:  30.0 * t.cos(), z: 200.0 + 30.0 * t.sin()};
+        let a = Point3d {x:  100.0 * t.cos(), y:  30.0, z: 200.0 + 100.0 * t.sin()};
+        let b = Point3d {x:  100.0 * t.cos(), y: -30.0, z: 200.0 + 100.0 * t.sin()};
+        let c = Point3d {x: -100.0 * t.cos(), y:  30.0, z: 200.0 - 100.0 * t.sin()};
         let triangle = BasicTriangle::new(a, b, c);
-        renderer.fill_triangle(triangle, RGB::new(255, 0, 0));
-    }
-}
-
-
-
-struct Triangles {}
-
-impl Rasterize for Triangles {
-    fn rasterize<'a>(&self, rasterizer: &mut Rasterizer<'a>) {
-        for i in 1..10000 { 
-            let base_x = i % 777;
-            let base_y = (71 * i) % 555;
-            let a = Point{x: base_x, y: base_y};
-            let b = Point{x: base_x + 4, y: base_y + 8};
-            let c = Point{x: base_x + 10, y: base_y + 4};
-            rasterizer.fill_triangle(Triangle::new(a, b, c), RGB::new((i % 255) as u8, 255, 0)); 
-        }
+        renderer.fill_triangle(triangle, &|Point {x, y}| RGB::new((x % 256) as u8, (y % 256) as u8, 255u8));
     }
 }
