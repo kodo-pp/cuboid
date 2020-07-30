@@ -1,13 +1,30 @@
-use crate::geometry::{Triangle, Line, HorizontalSegment, GluedTriangle, Triangular};
+use crate::geometry::{
+    Angle,
+    AngleWith,
+    Azimuth,
+    BasicPoint,
+    BasicTriangle,
+    BasicVector,
+    GluedTriangle,
+    HorizontalSegment,
+    Line,
+    Norm,
+    Point,
+    Point3d,
+    Triangle,
+    Triangular,
+};
 use super::SdlError;
 
 use sdl2::pixels::Color;
 use sdl2::pixels::PixelFormatEnum;
 use sdl2::video::WindowSurfaceRef;
 use std::mem;
+use std::fmt::Debug;
+
 
 pub fn render_frame<'a>(
-    renderable: &impl Rasterize,
+    renderable: &impl Render,
     mut surface_ref: WindowSurfaceRef<'a>
 ) -> Result<(), SdlError> {
     surface_ref.fill_rect(None, Color::BLACK)?;
@@ -24,9 +41,9 @@ pub fn render_frame<'a>(
     assert_eq!(bpp, 4, "Non 4-byte pixels are not supported");
     
     surface_ref.with_lock_mut(|data| {
-        let mut rasterizer = Rasterizer::new(data, width, height);
-        let rasterizable = renderable;
-        rasterizable.rasterize(&mut rasterizer);
+        let rasterizer = Rasterizer::new(data, width, height);
+        let mut renderer = Renderer::new(rasterizer, width, height);
+        renderable.render(&mut renderer);
     });
     surface_ref.finish()?;
     Ok(())
@@ -43,6 +60,114 @@ pub struct RGB {
 impl RGB {
     pub fn new(r: u8, g: u8, b: u8) -> RGB {
         RGB { r, g, b }
+    }
+}
+
+
+pub struct Camera {
+    pub position: Point3d,
+    pub azimuth: Angle,
+    pub vertical_angle: Angle,
+    pub hfov: Angle,
+    pub vfov: Angle,
+}
+
+impl Camera {
+    pub fn new() -> Camera {
+        Camera {
+            position: Point3d{x: 0.0, y: 0.0, z: 0.0},
+            azimuth: Angle::quarter_circle(),
+            vertical_angle: Angle::zero(),
+            hfov: Angle::from_degrees(100.0),
+            vfov: Angle::from_degrees(70.0),
+        }
+    }
+
+    pub fn translate(&self, point: Point3d) -> (BasicPoint<f64>, f64) {
+        // Adjust the cartesian coordinates of the point
+        let point = point - self.position.as_vector();
+
+        // Calculate angles
+        let vector = point.as_vector();
+        let horizontal_vector = {
+            let mut result = vector;
+            result.y = 0.0;
+            result
+        };
+        let vertical_angle_abs = vector.angle_with(&horizontal_vector);
+        let vertical_angle = vertical_angle_abs * vector.y.signum();
+        let azimuth = {
+            let plane_vector = BasicVector::<f64> {x: horizontal_vector.x, y: horizontal_vector.z};
+            plane_vector.azimuth()
+        };
+
+        // Adjust angles
+        let vertical_angle = vertical_angle - self.vertical_angle;
+        let azimuth = (azimuth - self.azimuth).into_plus_minus_pi_interval();
+        // Transform angles to 2D coordinates
+        let coord_x = vertical_angle / self.vfov + 0.5;
+        let coord_y = azimuth / self.vfov + 0.5;
+        (BasicPoint{x: coord_x, y: coord_y}, vector.norm())
+    }
+}
+
+
+#[derive(Debug, Clone, Copy, Eq, PartialEq)]
+pub struct Viewport {
+    pub width: u32,
+    pub height: u32,
+}
+
+impl Viewport {
+    pub fn new(width: u32, height: u32) -> Viewport {
+        Viewport {width, height}
+    }
+
+    pub fn translate(self, viewport_agnostic_point: BasicPoint<f64>) -> Point {
+        Point {
+            x: (viewport_agnostic_point.x * (self.width  as f64 - 1.0)).round() as i32,
+            y: (viewport_agnostic_point.y * (self.height as f64 - 1.0)).round() as i32,
+        }
+    }
+}
+
+
+pub struct Renderer<'a> {
+    rasterizer: Rasterizer<'a>,
+    //depth_buffer: Vec<f32>,
+    camera: Camera,
+    viewport: Viewport,
+}
+
+impl Renderer<'_> {
+    pub fn new<'a>(rasterizer: Rasterizer<'a>, width: u32, height: u32) -> Renderer<'a> {
+        //let buffer_size = width as usize * height as usize;
+        //let depth_buffer = Vec::<f32>::with_capacity(buffer_size);
+        //depth_buffer.resize(buffer_size, );
+        Renderer {
+            rasterizer,
+            //depth_buffer,
+            camera: Camera::new(),
+            viewport: Viewport::new(width, height),
+        }
+    }
+    
+    pub fn fill_triangle(&mut self, tri: BasicTriangle<Point3d>, color: RGB) {
+        let (a, _da) = self.translate(tri.a);
+        let (b, _db) = self.translate(tri.b);
+        let (c, _dc) = self.translate(tri.c);
+        if let Some(triangle_on_screen) = Triangle::try_new(a, b, c) {
+            self.rasterizer.fill_triangle(triangle_on_screen, color);
+        }
+    }
+
+    fn translate(&self, point: Point3d) -> (Point, f64) { 
+        println!("Translate {:?}", point);
+        let (viewport_agnostic_point, distance) = self.camera.translate(point);
+        println!("  viewport_agnostic_point = {:?}", viewport_agnostic_point);
+        let result = (self.viewport.translate(viewport_agnostic_point), distance);
+        println!("  result = {:?}", result);
+        result
     }
 }
 
@@ -77,10 +202,13 @@ impl Rasterizer<'_> {
         let line_ac = Line::from_points(a, c);
         let split_point = line_hb.intersect(line_ac);
         let horizontal_segment = HorizontalSegment::from_points(b, split_point);
-        let glued_top = GluedTriangle::new(horizontal_segment, a);
-        let glued_bottom = GluedTriangle::new(horizontal_segment, c);
-        self.fill_glued_triangle(glued_top, value);
-        self.fill_glued_triangle(glued_bottom, value);
+
+        if let Some(glued_top) = GluedTriangle::try_new(horizontal_segment, a) {
+            self.fill_glued_triangle(glued_top, value);
+        }
+        if let Some(glued_bottom) = GluedTriangle::try_new(horizontal_segment, c) {
+            self.fill_glued_triangle(glued_bottom, value);
+        }
     }
 
     pub fn fill_glued_triangle(&mut self, glued_tri: GluedTriangle, value: RGB) {
@@ -103,6 +231,11 @@ impl Rasterizer<'_> {
             }
         }
     }
+}
+
+
+pub trait Render {
+    fn render<'a>(&self, renderer: &mut Renderer<'a>);
 }
 
 

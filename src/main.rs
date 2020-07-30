@@ -5,8 +5,8 @@ mod clock;
 mod render;
 mod geometry;
 
-use crate::geometry::{Point, Triangle};
-use crate::render::{Rasterizer, Rasterize, RGB};
+use crate::geometry::{Point, Triangle, Point3d, BasicTriangle};
+use crate::render::{Rasterizer, Rasterize, RGB, Render, Renderer};
 use crate::clock::{Clock, EventsPerSecondTracker, ApproximateTimer};
 
 use sdl2::{Sdl, VideoSubsystem, EventPump};
@@ -14,7 +14,7 @@ use sdl2::event::Event;
 use sdl2::video::Window;
 use std::error::Error;
 use std::fmt::{self, Display, Formatter};
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 
 #[derive(Debug)]
@@ -72,7 +72,7 @@ fn main_loop(window: &Window, event_pump: &mut EventPump) -> Result<(), SdlError
     let mut fps_tracker = EventsPerSecondTracker::new();
     let mut approximate_timer = ApproximateTimer::new(Duration::from_secs(1));
 
-    let triangles = Triangles{};
+    let spinning_triangle = SpinningTriangle::new();
 
     loop {
         for event in event_pump.poll_iter() {
@@ -82,9 +82,9 @@ fn main_loop(window: &Window, event_pump: &mut EventPump) -> Result<(), SdlError
             }
         }
 
-        render::render_frame(&triangles, window.surface(event_pump)?)?;
+        render::render_frame(&spinning_triangle, window.surface(event_pump)?)?;
         fps_tracker.event();
-        let tick_duration = clock.tick(6000.0);
+        let tick_duration = clock.tick(60.0);
         if approximate_timer.update(tick_duration) != 0 {
             let fps = fps_tracker.mean();
             fps_tracker.reset();
@@ -105,8 +105,30 @@ fn main() -> Result<(), Box<dyn Error>> {
 }
 
 
-struct Triangles {}
+struct SpinningTriangle {
+    origin: Instant,
+}
 
+impl SpinningTriangle {
+    pub fn new() -> SpinningTriangle {
+        SpinningTriangle {origin: Instant::now()}
+    }
+}
+
+impl Render for SpinningTriangle {
+    fn render<'a>(&self, renderer: &mut Renderer<'a>) {
+        let t = self.origin.elapsed().as_secs_f64();
+        let a = Point3d {x:  100.0, y:  30.0 * t.cos(), z: 200.0 + 30.0 * t.sin()};
+        let b = Point3d {x:  100.0, y: -30.0 * t.cos(), z: 200.0 + 30.0 * t.sin()};
+        let c = Point3d {x: -100.0, y:  30.0 * t.cos(), z: 200.0 + 30.0 * t.sin()};
+        let triangle = BasicTriangle::new(a, b, c);
+        renderer.fill_triangle(triangle, RGB::new(255, 0, 0));
+    }
+}
+
+
+
+struct Triangles {}
 
 impl Rasterize for Triangles {
     fn rasterize<'a>(&self, rasterizer: &mut Rasterizer<'a>) {
@@ -116,7 +138,7 @@ impl Rasterize for Triangles {
             let a = Point{x: base_x, y: base_y};
             let b = Point{x: base_x + 4, y: base_y + 8};
             let c = Point{x: base_x + 10, y: base_y + 4};
-            rasterizer.fill_triangle(Triangle {a, b, c}, RGB::new((i % 255) as u8, 255, 0)); 
+            rasterizer.fill_triangle(Triangle::new(a, b, c), RGB::new((i % 255) as u8, 255, 0)); 
         }
     }
 }

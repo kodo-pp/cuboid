@@ -1,77 +1,98 @@
-use std::ops::{Sub, Add, Neg};
-use std::mem;
 use gcd::Gcd;
+use std::ops::{Sub, Add, Mul, Div, Neg};
+use std::mem;
+use std::fmt::Debug;
+use core::f64::consts::{PI, FRAC_PI_2};
 
 
-#[derive(Debug, Copy, Clone, Eq, PartialEq)]
-pub struct Point {
-    pub x: i32,
-    pub y: i32,
+#[derive(Debug, Copy, Clone, PartialEq, Eq)]
+pub struct BasicPoint<T> {
+    pub x: T,
+    pub y: T,
 }
 
-impl Add<Vector> for Point {
-    type Output = Point;
+pub type Point = BasicPoint<i32>;
 
-    fn add(self, other: Vector) -> Point {
-        Point { x: self.x + other.x, y: self.y + other.y }
+impl<O, B, A: Add<B, Output = O>> Add<BasicVector<B>> for BasicPoint<A> {
+    type Output = BasicPoint<O>;
+
+    fn add(self, other: BasicVector<B>) -> BasicPoint<O> {
+        BasicPoint { x: self.x + other.x, y: self.y + other.y }
     }
 }
 
-impl Sub<Point> for Point {
-    type Output = Vector;
+impl<O, B, A: Sub<B, Output = O>> Sub<BasicPoint<B>> for BasicPoint<A> {
+    type Output = BasicVector<O>;
 
-    fn sub(self, other: Point) -> Vector {
-        Vector { x: self.x - other.x, y: self.y - other.y }
+    fn sub(self, other: BasicPoint<B>) -> BasicVector<O> {
+        BasicVector { x: self.x - other.x, y: self.y - other.y }
     }
 }
 
-impl Sub<Vector> for Point {
-    type Output = Point;
+impl<O, B, A: Sub<B, Output = O>> Sub<BasicVector<B>> for BasicPoint<A> {
+    type Output = BasicPoint<O>;
 
-    fn sub(self, other: Vector) -> Point {
-        Point { x: self.x - other.x, y: self.y - other.y }
-    }
-}
-
-
-#[derive(Debug, Copy, Clone, Eq, PartialEq)]
-pub struct Vector {
-    pub x: i32,
-    pub y: i32,
-}
-
-impl Add for Vector {
-    type Output = Vector;
-
-    fn add(self, other: Vector) -> Vector {
-        Vector { x: self.x + other.x, y: self.y + other.y }
-    }
-}
-
-impl Sub for Vector {
-    type Output = Vector;
-
-    fn sub(self, other: Vector) -> Vector {
-        Vector { x: self.x - other.x, y: self.y - other.y }
-    }
-}
-
-impl Neg for Vector {
-    type Output = Vector;
-
-    fn neg(self) -> Vector {
-        Vector { x: -self.x, y: -self.y }
+    fn sub(self, other: BasicVector<B>) -> BasicPoint<O> {
+        BasicPoint { x: self.x - other.x, y: self.y - other.y }
     }
 }
 
 
-#[derive(Debug, Clone, Eq, PartialEq)]
-pub struct Triangle {
-    pub a: Point,
-    pub b: Point,
-    pub c: Point,
+#[derive(Debug, Copy, Clone, PartialEq, Eq)]
+pub struct BasicVector<T> {
+    pub x: T,
+    pub y: T,
 }
 
+impl<O, B, A: Add<B, Output = O>> Add<BasicVector<B>> for BasicVector<A> {
+    type Output = BasicVector<O>;
+
+    fn add(self, other: BasicVector<B>) -> BasicVector<O> {
+        BasicVector { x: self.x + other.x, y: self.y + other.y }
+    }
+}
+
+impl<O, B, A: Sub<B, Output = O>> Sub<BasicVector<B>> for BasicVector<A> {
+    type Output = BasicVector<O>;
+
+    fn sub(self, other: BasicVector<B>) -> BasicVector<O> {
+        BasicVector { x: self.x - other.x, y: self.y - other.y }
+    }
+}
+
+impl<O, T: Neg<Output = O>> Neg for BasicVector<T> {
+    type Output = BasicVector<O>;
+
+    fn neg(self) -> BasicVector<O> {
+        BasicVector { x: -self.x, y: -self.y }
+    }
+}
+
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct BasicTriangle<P> {
+    pub a: P,
+    pub b: P,
+    pub c: P,
+    
+    _private: (),  // See https://stackoverflow.com/questions/53588819#53589431
+}
+
+impl<P: PartialEq> BasicTriangle<P> {
+    pub fn new(a: P, b: P, c: P) -> BasicTriangle<P> {
+        BasicTriangle::try_new(a, b, c).expect("All three vertices of a triangle must be different")
+    }
+
+    pub fn try_new(a: P, b: P, c: P) -> Option<BasicTriangle<P>> {
+        if a == b || b == c || a == c {
+            None
+        } else {
+            Some(BasicTriangle {a, b, c, _private: ()})
+        }
+    }
+}
+
+pub type Triangle = BasicTriangle<Point>;
 
 #[derive(Debug, Clone, Copy)]
 pub struct Line {
@@ -102,6 +123,10 @@ impl Line {
         let y_numerator = self.a * other.c - self.c * other.a;
         let denominator = self.b * other.a - self.a * other.b;
         Point { x: x_numerator / denominator, y: y_numerator / denominator }
+    }
+
+    pub fn contains_point(self, point: Point) -> bool {
+        self.a * point.x + self.b * point.y + self.c == 0
     }
 }
 
@@ -147,6 +172,10 @@ impl HorizontalSegment {
     pub fn y(self) -> i32 {
         self.left.y
     }
+
+    pub fn as_line(self) -> Line {
+        Line::horizontal(self.y())
+    }
 }
 
 
@@ -158,7 +187,16 @@ pub struct GluedTriangle {
 
 impl GluedTriangle {
     pub fn new(horizontal_segment: HorizontalSegment, free_point: Point) -> GluedTriangle {
-        GluedTriangle { horizontal_segment, free_point }
+        GluedTriangle::try_new(horizontal_segment, free_point)
+            .expect("GluedTriangle's free point cannot lie on the same line as its horizontal segment")
+    }
+
+    pub fn try_new(horizontal_segment: HorizontalSegment, free_point: Point) -> Option<GluedTriangle> {
+        if horizontal_segment.as_line().contains_point(free_point) {
+            None
+        } else {
+            Some(GluedTriangle {horizontal_segment, free_point})
+        }
     }
 }
 
@@ -198,5 +236,231 @@ impl Triangular for Triangle {
 impl Triangular for GluedTriangle {
     fn points(&self) -> (Point, Point, Point) {
         (self.free_point, self.horizontal_segment.left(), self.horizontal_segment.right())
+    }
+}
+
+
+#[derive(Debug, Copy, Clone, PartialEq, Eq)]
+pub struct BasicPoint3d<T> {
+    pub x: T,
+    pub y: T,
+    pub z: T,
+}
+
+pub type Point3d = BasicPoint3d<f64>;
+
+impl<T> BasicPoint3d<T> {
+    pub fn as_vector(self) -> BasicVector3d<T> {
+        BasicVector3d {x: self.x, y: self.y, z: self.z}
+    }
+}
+
+impl<O, B, A: Add<B, Output = O>> Add<BasicVector3d<B>> for BasicPoint3d<A> {
+    type Output = BasicPoint3d<O>;
+
+    fn add(self, other: BasicVector3d<B>) -> BasicPoint3d<O> {
+        BasicPoint3d { x: self.x + other.x, y: self.y + other.y, z: self.z + other.z }
+    }
+}
+
+impl<O, B, A: Sub<B, Output = O>> Sub<BasicPoint3d<B>> for BasicPoint3d<A> {
+    type Output = BasicVector3d<O>;
+
+    fn sub(self, other: BasicPoint3d<B>) -> BasicVector3d<O> {
+        BasicVector3d { x: self.x - other.x, y: self.y - other.y, z: self.z - other.z }
+    }
+}
+
+impl<O, B, A: Sub<B, Output = O>> Sub<BasicVector3d<B>> for BasicPoint3d<A> {
+    type Output = BasicPoint3d<O>;
+
+    fn sub(self, other: BasicVector3d<B>) -> BasicPoint3d<O> {
+        BasicPoint3d { x: self.x - other.x, y: self.y - other.y, z: self.z - other.z }
+    }
+}
+
+
+#[derive(Debug, Copy, Clone, Eq, PartialEq)]
+pub struct BasicVector3d<T> {
+    pub x: T,
+    pub y: T,
+    pub z: T,
+}
+
+impl<O, B, A: Add<B, Output = O>> Add<BasicVector3d<B>> for BasicVector3d<A> {
+    type Output = BasicVector3d<O>;
+
+    fn add(self, other: BasicVector3d<B>) -> BasicVector3d<O> {
+        BasicVector3d { x: self.x + other.x, y: self.y + other.y, z: self.z + other.z }
+    }
+}
+
+impl<O, B, A: Sub<B, Output = O>> Sub<BasicVector3d<B>> for BasicVector3d<A> {
+    type Output = BasicVector3d<O>;
+
+    fn sub(self, other: BasicVector3d<B>) -> BasicVector3d<O> {
+        BasicVector3d { x: self.x - other.x, y: self.y - other.y, z: self.z - other.z }
+    }
+}
+
+impl<O, T: Neg<Output = O>> Neg for BasicVector3d<T> {
+    type Output = BasicVector3d<O>;
+
+    fn neg(self) -> BasicVector3d<O> {
+        BasicVector3d { x: -self.x, y: -self.y, z: -self.z }
+    }
+}
+
+
+#[derive(Debug, Copy, Clone, PartialEq, PartialOrd)]
+pub struct Angle(f64);
+
+impl Angle {
+    pub fn zero() -> Angle {
+        Angle(0.0)
+    }
+
+    pub fn from_radians(radians: f64) -> Angle {
+        Angle(radians)
+    }
+
+    pub fn from_degrees(degrees: f64) -> Angle {
+        Angle(degrees.to_radians())
+    }
+
+    pub fn quarter_circle() -> Angle {
+        Angle(FRAC_PI_2)
+    }
+
+    pub fn half_circle() -> Angle {
+        Angle(PI)
+    }
+
+    pub fn circle() -> Angle {
+        Angle(2.0 * PI)
+    }
+
+    pub fn into_plus_minus_pi_interval(self) -> Angle {
+        let zero_2pi_angle = self.into_zero_2pi_interval();
+        if zero_2pi_angle > Angle::half_circle() {
+            zero_2pi_angle - Angle::circle()
+        } else {
+            zero_2pi_angle
+        }
+    }
+
+    pub fn into_zero_2pi_interval(self) -> Angle {
+        Angle(self.0.rem_euclid(2.0 * PI))
+    }
+
+    #[allow(dead_code)]
+    pub fn as_radians(self) -> f64 {
+        self.0
+    }
+
+    #[allow(dead_code)]
+    pub fn as_degrees(self) -> f64 {
+        self.0.to_degrees()
+    }
+}
+
+impl Sub for Angle {
+    type Output = Angle;
+
+    fn sub(self, other: Angle) -> Angle {
+        Angle(self.0 - other.0)
+    }
+}
+
+impl Mul<f64> for Angle {
+    type Output = Angle;
+
+    fn mul(self, scalar: f64) -> Angle {
+        Angle(self.0 * scalar)
+    }
+}
+
+impl Div for Angle {
+    type Output = f64;
+
+    fn div(self, other: Angle) -> f64 {
+        self.0 / other.0
+    }
+}
+
+
+pub trait Dot<T> {
+    type Output;
+    fn dot(&self, other: &T) -> Self::Output;
+}
+
+impl<AO, MO: Add<Output = AO>, B: Copy, A: Mul<B, Output=MO> + Copy> Dot<BasicVector<B>> for BasicVector<A> {
+    type Output = AO;
+
+    // BasVec<A> · BasVec<B> = (A * B) + (A * B) = MO + MO = AO
+    fn dot(&self, other: &BasicVector<B>) -> AO {
+        self.x * other.x + self.y * other.y
+    }
+}
+
+impl<
+    AO2,
+    AO1: Add<MO, Output = AO2>,
+    MO: Add<Output = AO1>,
+    B: Copy,
+    A: Mul<B, Output = MO> + Copy
+> Dot<BasicVector3d<B>> for BasicVector3d<A> {
+    type Output = AO2;
+
+    // BasVec3<A> · BasVec3<B> = ((A * B) + (A * B)) + (A * B) = (MO + MO) + MO = AO1 + MO = AO2
+    fn dot(&self, other: &BasicVector3d<B>) -> AO2 {
+        self.x * other.x + self.y * other.y + self.z * other.z
+    }
+}
+
+
+pub trait Norm {
+    type Output;
+    fn norm(&self) -> Self::Output;
+}
+
+impl Norm for BasicVector<f64> {
+    type Output = f64;
+
+    fn norm(&self) -> f64 {
+        self.x.hypot(self.y)
+    }
+}
+
+impl Norm for BasicVector3d<f64> {
+    type Output = f64;
+
+    fn norm(&self) -> f64 {
+        (self.x.powi(2) + self.y.powi(2) + self.z.powi(2)).sqrt()
+    }
+}
+
+
+pub trait AngleWith<T> {
+    fn angle_with(&self, other: &T) -> Angle
+    where
+        Self: Dot<T, Output = f64> + Norm<Output = f64>,
+        T: Norm<Output = f64> {
+        let dot = self.dot(other);
+        let norms = self.norm() * other.norm();
+        Angle::from_radians((dot / norms).acos())
+    }
+}
+
+impl<T, V: Dot<T, Output = f64> + Norm<Output = f64>> AngleWith<T> for V {}
+
+
+pub trait Azimuth {
+    fn azimuth(&self) -> Angle;
+}
+
+impl Azimuth for BasicVector<f64> {
+    fn azimuth(&self) -> Angle {
+        Angle::from_radians(self.y.atan2(self.x))
     }
 }
