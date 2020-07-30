@@ -5,8 +5,8 @@ mod clock;
 mod render;
 mod geometry;
 
-use crate::geometry::{Point, Triangle, Point3d, BasicTriangle};
-use crate::render::{Rasterizer, Rasterize, RGB, Render, Renderer};
+use crate::geometry::{Point, Point3d, BasicTriangle};
+use crate::render::{RGB, Render, Renderer};
 use crate::clock::{Clock, EventsPerSecondTracker, ApproximateTimer};
 
 use sdl2::{Sdl, VideoSubsystem, EventPump};

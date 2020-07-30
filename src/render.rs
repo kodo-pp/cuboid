@@ -162,12 +162,8 @@ impl Renderer<'_> {
     }
 
     fn translate(&self, point: Point3d) -> (Point, f64) { 
-        println!("Translate {:?}", point);
         let (viewport_agnostic_point, distance) = self.camera.translate(point);
-        println!("  viewport_agnostic_point = {:?}", viewport_agnostic_point);
-        let result = (self.viewport.translate(viewport_agnostic_point), distance);
-        println!("  result = {:?}", result);
-        result
+        (self.viewport.translate(viewport_agnostic_point), distance)
     }
 }
 
