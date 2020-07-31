@@ -14,6 +14,8 @@ use crate::geometry::{
     Triangle,
     Triangular,
 };
+use crate::linalg::{Matrix2d, Basis};
+use crate::with::With;
 use super::SdlError;
 
 use sdl2::pixels::Color;
@@ -132,33 +134,80 @@ impl Viewport {
 }
 
 
+struct DepthBuffer {
+    depth_buffer: Vec<f32>,
+    width: u32,
+    height: u32,
+}
+
+impl DepthBuffer {
+    pub fn new(width: u32, height: u32) -> DepthBuffer {
+        let buffer_size = width as usize * height as usize;
+        let mut depth_buffer = Vec::<f32>::with_capacity(buffer_size);
+        depth_buffer.resize(buffer_size, f32::INFINITY);
+        DepthBuffer {depth_buffer, width, height}
+    }
+
+    pub fn try_update(&mut self, x: u32, y: u32, value: f32) -> bool {
+        if let Some(index) = self.index_at_checked(x, y) {
+            if value < self.depth_buffer[index] {
+                self.depth_buffer[index] = value;
+                return true;
+            }
+        }
+        false
+    }
+
+    pub fn get(&mut self, x: u32, y: u32) -> f32 {
+        let index = self.index_at(x, y);
+        self.depth_buffer[index]
+    }
+
+    fn index_at(&self, x: u32, y: u32) -> usize {
+        let x = x as usize;
+        let y = y as usize;
+        y * self.width as usize + x
+    }
+
+    fn index_at_checked(&self, x: u32, y: u32) -> Option<usize> {
+        if x < self.width && y < self.height {
+            Some(self.index_at(x, y))
+        } else {
+            None
+        }
+    }
+}
+
+
 pub struct Renderer<'a> {
     rasterizer: Rasterizer<'a>,
-    //depth_buffer: Vec<f32>,
+    depth_buffer: DepthBuffer,
     camera: Camera,
     viewport: Viewport,
 }
 
 impl Renderer<'_> {
     pub fn new<'a>(rasterizer: Rasterizer<'a>, width: u32, height: u32) -> Renderer<'a> {
-        //let buffer_size = width as usize * height as usize;
-        //let depth_buffer = Vec::<f32>::with_capacity(buffer_size);
-        //depth_buffer.resize(buffer_size, );
         Renderer {
             rasterizer,
-            //depth_buffer,
+            depth_buffer: DepthBuffer::new(width, height),
             camera: Camera::new(),
             viewport: Viewport::new(width, height),
         }
     }
     
-    pub fn fill_triangle<Filler: TriangleFill>(&mut self, tri: BasicTriangle<Point3d>) {
-        let (a, _da) = self.translate(tri.a);
-        let (b, _db) = self.translate(tri.b);
-        let (c, _dc) = self.translate(tri.c);
+    pub fn fill_triangle<
+        T: TriangleFill + ToTriangleCoords,
+        FillerConstructor: With<Triangle, Output = T>
+    >(&mut self, tri: BasicTriangle<Point3d>, filler_constructor: FillerConstructor) {
+        let (a, da) = self.translate(tri.a);
+        let (b, db) = self.translate(tri.b);
+        let (c, dc) = self.translate(tri.c);
         if let Some(triangle_on_screen) = Triangle::try_new(a, b, c) {
-            let mut filler = Filler::new(triangle_on_screen);
-            self.rasterizer.fill_triangle(triangle_on_screen, &mut filler);
+            let filler = filler_constructor.with(triangle_on_screen);
+            let tri_depths = (da, db, dc);
+            let mut adapter = TriangleFillDepthBufferAdapter::new(tri_depths, filler, &mut self.depth_buffer);
+            self.rasterizer.fill_triangle(triangle_on_screen, &mut adapter);
         }
     }
 
@@ -224,7 +273,10 @@ impl Rasterizer<'_> {
             let right_isect = horizontal_line.intersect(right_line);
 
             for x in (left_isect.x.max(0))..(right_isect.x.min(self.width as i32)) {
-                self.set(x as u32, y as u32, filler.color(Point {x, y}));
+                let point = Point {x, y};
+                if filler.should_draw(point) {
+                    self.set(x as u32, y as u32, filler.color(point));
+                }
             }
         }
     }
@@ -242,6 +294,81 @@ pub trait Rasterize {
 
 
 pub trait TriangleFill {
-    fn new(tri: Triangle) -> Self;
     fn color(&self, point: Point) -> RGB;
+    fn should_draw(&mut self, _point: Point) -> bool {
+        true
+    }
+}
+
+
+pub trait ToTriangleCoords {
+    fn to_triangle_coords(&self, point: Point) -> BasicPoint<f64>;
+}
+
+
+pub struct TriangleCoordsConverter {
+    origin: Point,
+    basis: Basis<f64>,
+}
+
+impl TriangleCoordsConverter {
+    pub fn new(tri: Triangle) -> Self {
+        TriangleCoordsConverter {
+            origin: tri.a,
+            basis: TriangleCoordsConverter::triangle_to_basis(tri),
+        }
+    }
+
+    fn triangle_to_basis(tri: Triangle) -> Basis<f64> {
+        let u = (tri.b - tri.a).map(&|x| x as f64);
+        let v = (tri.c - tri.a).map(&|x| x as f64);
+        let matrix = Matrix2d::from_columns(u.into(), v.into());
+        Basis::new(matrix)
+    }
+}
+
+impl ToTriangleCoords for TriangleCoordsConverter {
+    fn to_triangle_coords(&self, point: Point) -> BasicPoint<f64> {
+        BasicPoint::from(self.basis.coords_of((point - self.origin).map(&|x| x as f64)))
+    }
+}
+
+
+struct TriangleFillDepthBufferAdapter<'a, Filler> {
+    tri_depths: (f64, f64, f64),
+    filler: Filler,
+    depth_buffer: &'a mut DepthBuffer,
+}
+
+impl<'a, Filler> TriangleFillDepthBufferAdapter<'a, Filler> {
+    pub fn new(
+        tri_depths: (f64, f64, f64),
+        filler: Filler,
+        depth_buffer: &'a mut DepthBuffer
+    ) -> Self {
+        TriangleFillDepthBufferAdapter {tri_depths, filler, depth_buffer}
+    }
+}
+
+impl<Filler: ToTriangleCoords> TriangleFillDepthBufferAdapter<'_, Filler> {
+    fn get_depth(&self, point: Point) -> f64 {
+        let tri_point = self.filler.to_triangle_coords(point);
+        let base_depth = self.tri_depths.0;
+        let delta_depth_b = self.tri_depths.1 - base_depth;
+        let delta_depth_c = self.tri_depths.2 - base_depth;
+        base_depth + tri_point.x * delta_depth_b + tri_point.y * delta_depth_c
+    }
+}
+
+impl<Filler: TriangleFill + ToTriangleCoords> TriangleFill for TriangleFillDepthBufferAdapter<'_, Filler> {
+    fn color(&self, point: Point) -> RGB {
+        self.filler.color(point)
+    }
+
+    fn should_draw(&mut self, point: Point) -> bool {
+        if !self.filler.should_draw(point) {
+            return false;
+        }
+        self.depth_buffer.try_update(point.x as u32, point.y as u32, self.get_depth(point) as f32)
+    }
 }

@@ -19,6 +19,12 @@ impl<T: Copy> BasicPoint<T> {
     }
 }
 
+impl<T> From<(T, T)> for BasicPoint<T> {
+    fn from(tuple: (T, T)) -> BasicPoint<T> {
+        BasicPoint {x: tuple.0, y: tuple.1}
+    }
+}
+
 impl<O, B, A: Add<B, Output = O>> Add<BasicVector<B>> for BasicPoint<A> {
     type Output = BasicPoint<O>;
 

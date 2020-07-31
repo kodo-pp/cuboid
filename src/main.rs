@@ -5,11 +5,12 @@ mod clock;
 mod render;
 mod geometry;
 mod linalg;
+mod with;
 
-use crate::geometry::{Point, Point3d, BasicTriangle, Triangle};
-use crate::render::{RGB, Render, Renderer, TriangleFill};
+use crate::geometry::{Point, Point3d, BasicTriangle, Triangle, BasicPoint};
+use crate::render::{RGB, Render, Renderer, TriangleFill, TriangleCoordsConverter, ToTriangleCoords};
 use crate::clock::{Clock, EventsPerSecondTracker, ApproximateTimer};
-use crate::linalg::{Basis, Matrix2d};
+use crate::with::With;
 
 use sdl2::{Sdl, VideoSubsystem, EventPump};
 use sdl2::event::Event;
@@ -86,7 +87,7 @@ fn main_loop(window: &Window, event_pump: &mut EventPump) -> Result<(), SdlError
 
         render::render_frame(&spinning_triangle, window.surface(event_pump)?)?;
         fps_tracker.event();
-        let tick_duration = clock.tick(60.0);
+        let tick_duration = clock.tick(6000.0);
         if approximate_timer.update(tick_duration) != 0 {
             let fps = fps_tracker.mean();
             fps_tracker.reset();
@@ -124,31 +125,47 @@ impl Render for SpinningTriangle {
         let b = Point3d {x:  100.0 * t.cos(), y: -30.0, z: 200.0 + 100.0 * t.sin()};
         let c = Point3d {x: -100.0 * t.cos(), y:  30.0, z: 200.0 - 100.0 * t.sin()};
         let triangle = BasicTriangle::new(a, b, c);
-        renderer.fill_triangle::<GradientTriangleFiller>(triangle);
+        renderer.fill_triangle(triangle, GradientTriangleFillerConstructor{});
+        let t = t + 1.0;
+        let a = Point3d {x:  100.0 * t.cos(), y:  30.0, z: 200.0 + 100.0 * t.sin()};
+        let b = Point3d {x:  100.0 * t.cos(), y: -30.0, z: 200.0 + 100.0 * t.sin()};
+        let c = Point3d {x: -100.0 * t.cos(), y:  30.0, z: 200.0 - 100.0 * t.sin()};
+        let triangle = BasicTriangle::new(a, b, c);
+        renderer.fill_triangle(triangle, GradientTriangleFillerConstructor{});
+    }
+}
+
+
+struct GradientTriangleFillerConstructor {}
+
+impl With<Triangle> for GradientTriangleFillerConstructor {
+    type Output = GradientTriangleFiller;
+
+    fn with(self, tri: Triangle) -> GradientTriangleFiller {
+        GradientTriangleFiller::new(tri)
     }
 }
 
 
 struct GradientTriangleFiller {
-    origin: Point,
-    basis: Basis<f64>,
+    coord_converter: TriangleCoordsConverter,
+}
+
+impl GradientTriangleFiller {
+    fn new(tri: Triangle) -> GradientTriangleFiller {
+        GradientTriangleFiller {coord_converter: TriangleCoordsConverter::new(tri)}
+    }
+}
+
+impl ToTriangleCoords for GradientTriangleFiller {
+    fn to_triangle_coords(&self, point: Point) -> BasicPoint<f64> {
+        self.coord_converter.to_triangle_coords(point)
+    }
 }
 
 impl TriangleFill for GradientTriangleFiller {
-    fn new(tri: Triangle) -> GradientTriangleFiller {
-        GradientTriangleFiller {origin: tri.a, basis: triangle_to_basis(tri)}
-    }
-
     fn color(&self, point: Point) -> RGB {
-        let (ix, jy) = self.basis.coords_of((point - self.origin).map(&|x| x as f64));
-        RGB::new((ix * 200.0) as u8, (jy * 200.0) as u8, 200)
+        let BasicPoint {x, y} = self.to_triangle_coords(point);
+        RGB::new((x * 200.0) as u8, (y * 200.0) as u8, 200)
     }
-}
-
-
-fn triangle_to_basis(tri: Triangle) -> Basis<f64> {
-    let u = (tri.b - tri.a).map(&|x| x as f64);
-    let v = (tri.c - tri.a).map(&|x| x as f64);
-    let matrix = Matrix2d::from_columns(u.into(), v.into());
-    Basis::new(matrix)
 }
