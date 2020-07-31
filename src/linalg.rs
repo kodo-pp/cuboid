@@ -36,10 +36,6 @@ impl<
         }
     }
 
-    pub fn as_columns(self) -> ((T, T), (T, T)) {
-        ((self.x00, self.x10), (self.x01, self.x11))
-    }
-
     pub fn inverse(self) -> Option<Matrix2d<T>> {
         let det = self.det();
         if det.into() == 0.0 {
@@ -108,15 +104,5 @@ impl<
     pub fn coords_of(&self, vector: impl Into<(T, T)>) -> (T, T) {
         let canonical_coords: (T, T) = vector.into();
         self.inverse_c_matrix * canonical_coords
-    }
-
-    pub fn i<V: From<(T, T)>>(&self) -> V {
-        let (col1, _col2) = self.c_matrix.as_columns();
-        V::from(col1)
-    }
-
-    pub fn j<V: From<(T, T)>>(&self) -> V {
-        let (_col1, col2) = self.c_matrix.as_columns();
-        V::from(col2)
     }
 }

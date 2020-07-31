@@ -13,12 +13,6 @@ pub struct BasicPoint<T> {
 
 pub type Point = BasicPoint<i32>;
 
-impl<T: Copy> BasicPoint<T> {
-    pub fn as_vector(self) -> BasicVector<T> {
-        BasicVector {x: self.x, y: self.y}
-    }
-}
-
 impl<T> From<(T, T)> for BasicPoint<T> {
     fn from(tuple: (T, T)) -> BasicPoint<T> {
         BasicPoint {x: tuple.0, y: tuple.1}

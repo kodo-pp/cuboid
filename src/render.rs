@@ -1,6 +1,5 @@
 use crate::geometry::{
     Angle,
-    AngleWith,
     Azimuth,
     BasicPoint,
     BasicTriangle,
@@ -89,23 +88,30 @@ impl Camera {
         // Adjust the cartesian coordinates of the point
         let point = point - self.position.as_vector();
 
-        // Calculate angles
+        // Calculate azimuth
         let vector = point.as_vector();
         let horizontal_vector = {
             let mut result = vector;
             result.y = 0.0;
             result
         };
-        let vertical_angle_abs = vector.angle_with(&horizontal_vector);
-        let vertical_angle = vertical_angle_abs * vector.y.signum();
         let azimuth = {
             let plane_vector = BasicVector::<f64> {x: horizontal_vector.x, y: horizontal_vector.z};
             plane_vector.azimuth()
         };
 
+        // Adjust azimuth
+        let azimuth = (azimuth - self.azimuth).into_plus_minus_pi_interval();
+
+        // Calculate vertical angle
+        let vertical_angle = {
+            let corrected_horizontal_vector_norm = horizontal_vector.norm() * azimuth.as_radians().cos();
+            let vertical_distance = vector.y;
+            Angle::from_radians(vertical_distance.atan2(corrected_horizontal_vector_norm))
+        };
+
         // Adjust angles
         let vertical_angle = vertical_angle - self.vertical_angle;
-        let azimuth = (azimuth - self.azimuth).into_plus_minus_pi_interval();
         // Transform angles to 2D coordinates
         let coord_x = azimuth / self.hfov + 0.5;
         let coord_y = vertical_angle / self.vfov + 0.5;
@@ -156,11 +162,6 @@ impl DepthBuffer {
             }
         }
         false
-    }
-
-    pub fn get(&mut self, x: u32, y: u32) -> f32 {
-        let index = self.index_at(x, y);
-        self.depth_buffer[index]
     }
 
     fn index_at(&self, x: u32, y: u32) -> usize {
