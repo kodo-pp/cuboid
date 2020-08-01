@@ -87,7 +87,7 @@ fn main_loop(window: &Window, event_pump: &mut EventPump) -> Result<(), SdlError
 
         render::render_frame(&spinning_triangle, window.surface(event_pump)?)?;
         fps_tracker.event();
-        let tick_duration = clock.tick(6000.0);
+        let tick_duration = clock.tick(120.0);
         if approximate_timer.update(tick_duration) != 0 {
             let fps = fps_tracker.mean();
             fps_tracker.reset();
@@ -126,10 +126,23 @@ impl Render for SpinningTriangle {
         let c = Point3d {x: -100.0 * t.cos(), y:  30.0, z: 200.0 - 100.0 * t.sin()};
         let triangle = BasicTriangle::new(a, b, c);
         renderer.fill_triangle(triangle, GradientTriangleFillerConstructor{});
+
         let t = t + 1.0;
         let a = Point3d {x:  100.0 * t.cos(), y:  30.0, z: 200.0 + 100.0 * t.sin()};
         let b = Point3d {x:  100.0 * t.cos(), y: -30.0, z: 200.0 + 100.0 * t.sin()};
         let c = Point3d {x: -100.0 * t.cos(), y:  30.0, z: 200.0 - 100.0 * t.sin()};
+        let triangle = BasicTriangle::new(a, b, c);
+        renderer.fill_triangle(triangle, GradientTriangleFillerConstructor{});
+
+        let a = Point3d {x: -400.0 + t * 40.0, y:  30.0 + t * 10.0, z: 400.0 - t * 30.0};
+        let b = Point3d {x: -300.0 + t * 40.0, y: -30.0 + t * 10.0, z: 400.0 - t * 30.0};
+        let c = Point3d {x: -500.0 + t * 40.0, y:  30.0 + t * 10.0, z: 400.0 - t * 30.0};
+        let triangle = BasicTriangle::new(a, b, c);
+        renderer.fill_triangle(triangle, GradientTriangleFillerConstructor{});
+        
+        let a = Point3d {x:   0.0 * t.cos(), y: -30.0, z: 200.0};
+        let b = Point3d {x:   0.0 * t.cos(), y:  30.0, z: 200.0};
+        let c = Point3d {x: 100.0 * t.cos(), y: -30.0, z: 200.0 + 100.0 * t.sin()};
         let triangle = BasicTriangle::new(a, b, c);
         renderer.fill_triangle(triangle, GradientTriangleFillerConstructor{});
     }

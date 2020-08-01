@@ -105,13 +105,15 @@ pub struct BasicTriangle<P> {
     _private: (),  // See https://stackoverflow.com/questions/53588819#53589431
 }
 
-impl<P: PartialEq> BasicTriangle<P> {
+impl<P: PartialEq + LiesOn> BasicTriangle<P> {
     pub fn new(a: P, b: P, c: P) -> BasicTriangle<P> {
-        BasicTriangle::try_new(a, b, c).expect("All three vertices of a triangle must be different")
+        BasicTriangle::try_new(a, b, c).expect("The triangle is invalid")
     }
 
     pub fn try_new(a: P, b: P, c: P) -> Option<BasicTriangle<P>> {
         if a == b || b == c || a == c {
+            None
+        } else if a.lies_on(&b, &c) || b.lies_on(&a, &c) || c.lies_on(&a, &b) {
             None
         } else {
             Some(BasicTriangle {a, b, c, _private: ()})
@@ -416,6 +418,14 @@ impl Div for Angle {
     }
 }
 
+impl Div<f64> for Angle {
+    type Output = Angle;
+
+    fn div(self, scalar: f64) -> Angle {
+        Angle(self.0 / scalar)
+    }
+}
+
 
 pub trait Dot<T> {
     type Output;
@@ -490,5 +500,22 @@ pub trait Azimuth {
 impl Azimuth for BasicVector<f64> {
     fn azimuth(&self) -> Angle {
         Angle::from_radians(self.y.atan2(self.x))
+    }
+}
+
+
+pub trait LiesOn {
+    fn lies_on(&self, a: &Self, b: &Self) -> bool;
+}
+
+impl LiesOn for Point {
+    fn lies_on(&self, a: &Point, b: &Point) -> bool {
+        Line::from_points(*a, *b).contains_point(*self)
+    }
+}
+
+impl LiesOn for Point3d {
+    fn lies_on(&self, a: &Point3d, b: &Point3d) -> bool {
+        (*a - *self).angle_with(&(*b - *self)).as_radians().abs() < 1e-10
     }
 }

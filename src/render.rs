@@ -66,21 +66,24 @@ impl RGB {
 
 
 pub struct Camera {
-    pub position: Point3d,
-    pub azimuth: Angle,
-    pub vertical_angle: Angle,
-    pub hfov: Angle,
-    pub vfov: Angle,
+    position: Point3d,
+    azimuth: Angle,
+    vertical_angle: Angle,
+    hfov: Angle,
+    vfov: Angle,
+    hfov_half_cot: f64,
 }
 
 impl Camera {
     pub fn new() -> Camera {
+        let hfov = Angle::from_degrees(100.0);
         Camera {
             position: Point3d{x: 0.0, y: 0.0, z: 0.0},
             azimuth: Angle::quarter_circle(),
             vertical_angle: Angle::zero(),
-            hfov: Angle::from_degrees(100.0),
+            hfov,
             vfov: Angle::from_degrees(70.0),
+            hfov_half_cot: (hfov / 2.0).as_radians().tan().recip(),
         }
     }
 
@@ -113,7 +116,7 @@ impl Camera {
         // Adjust angles
         let vertical_angle = vertical_angle - self.vertical_angle;
         // Transform angles to 2D coordinates
-        let coord_x = azimuth / self.hfov + 0.5;
+        let coord_x = azimuth.as_radians().tan() * self.hfov_half_cot * 0.5 + 0.5;
         let coord_y = vertical_angle / self.vfov + 0.5;
         (BasicPoint{x: coord_x, y: coord_y}, vector.norm())
     }
