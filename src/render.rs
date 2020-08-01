@@ -340,16 +340,16 @@ pub trait TranslateCoords {
 }
 
 
-pub struct TriangleCoordsConverter {
+pub struct CoordsTranslator {
     origin: Point,
     basis: Basis<f64>,
 }
 
-impl TriangleCoordsConverter {
+impl CoordsTranslator {
     pub fn new(tri: Triangle) -> Self {
-        TriangleCoordsConverter {
+        CoordsTranslator {
             origin: tri.a,
-            basis: TriangleCoordsConverter::triangle_to_basis(tri),
+            basis: CoordsTranslator::triangle_to_basis(tri),
         }
     }
 
@@ -361,7 +361,7 @@ impl TriangleCoordsConverter {
     }
 }
 
-impl TranslateCoords for TriangleCoordsConverter {
+impl TranslateCoords for CoordsTranslator {
     fn translate_coords(&self, point: Point) -> BasicPoint<f64> {
         BasicPoint::from(self.basis.coords_of((point - self.origin).map(&|x| x as f64)))
     }

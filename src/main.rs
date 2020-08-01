@@ -8,7 +8,7 @@ mod linalg;
 mod with;
 
 use crate::geometry::{Point, Point3d, BasicTriangle, Triangle, BasicPoint, Par3d};
-use crate::render::{RGB, Render, Renderer, ParFill, TriangleCoordsConverter, TranslateCoords};
+use crate::render::{RGB, Render, Renderer, ParFill, CoordsTranslator, TranslateCoords};
 use crate::clock::{Clock, EventsPerSecondTracker, ApproximateTimer};
 use crate::with::With;
 
@@ -142,12 +142,12 @@ impl With<Triangle> for GradientParFillerConstructor {
 
 
 struct GradientParFiller {
-    coord_converter: TriangleCoordsConverter,
+    coord_converter: CoordsTranslator,
 }
 
 impl GradientParFiller {
     fn new(tri: Triangle) -> GradientParFiller {
-        GradientParFiller {coord_converter: TriangleCoordsConverter::new(tri)}
+        GradientParFiller {coord_converter: CoordsTranslator::new(tri)}
     }
 }
 
