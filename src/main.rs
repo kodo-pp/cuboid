@@ -7,8 +7,8 @@ mod geometry;
 mod linalg;
 mod with;
 
-use crate::geometry::{Point, Point3d, BasicTriangle, Triangle, BasicPoint};
-use crate::render::{RGB, Render, Renderer, TriangleFill, TriangleCoordsConverter, ToTriangleCoords};
+use crate::geometry::{Point, Point3d, BasicTriangle, Triangle, BasicPoint, Par3d};
+use crate::render::{RGB, Render, Renderer, ParFill, TriangleCoordsConverter, TranslateCoords};
 use crate::clock::{Clock, EventsPerSecondTracker, ApproximateTimer};
 use crate::with::With;
 
@@ -124,61 +124,42 @@ impl Render for SpinningTriangle {
         let a = Point3d {x:  100.0 * t.cos(), y:  30.0, z: 200.0 + 100.0 * t.sin()};
         let b = Point3d {x:  100.0 * t.cos(), y: -30.0, z: 200.0 + 100.0 * t.sin()};
         let c = Point3d {x: -100.0 * t.cos(), y:  30.0, z: 200.0 - 100.0 * t.sin()};
-        let triangle = BasicTriangle::new(a, b, c);
-        renderer.fill_triangle(triangle, GradientTriangleFillerConstructor{});
-
-        let t = t + 1.0;
-        let a = Point3d {x:  100.0 * t.cos(), y:  30.0, z: 200.0 + 100.0 * t.sin()};
-        let b = Point3d {x:  100.0 * t.cos(), y: -30.0, z: 200.0 + 100.0 * t.sin()};
-        let c = Point3d {x: -100.0 * t.cos(), y:  30.0, z: 200.0 - 100.0 * t.sin()};
-        let triangle = BasicTriangle::new(a, b, c);
-        renderer.fill_triangle(triangle, GradientTriangleFillerConstructor{});
-
-        let a = Point3d {x: -400.0 + t * 40.0, y:  30.0 + t * 10.0, z: 400.0 - t * 30.0};
-        let b = Point3d {x: -300.0 + t * 40.0, y: -30.0 + t * 10.0, z: 400.0 - t * 30.0};
-        let c = Point3d {x: -500.0 + t * 40.0, y:  30.0 + t * 10.0, z: 400.0 - t * 30.0};
-        let triangle = BasicTriangle::new(a, b, c);
-        renderer.fill_triangle(triangle, GradientTriangleFillerConstructor{});
-        
-        let a = Point3d {x:   0.0 * t.cos(), y: -30.0, z: 200.0};
-        let b = Point3d {x:   0.0 * t.cos(), y:  30.0, z: 200.0};
-        let c = Point3d {x: 100.0 * t.cos(), y: -30.0, z: 200.0 + 100.0 * t.sin()};
-        let triangle = BasicTriangle::new(a, b, c);
-        renderer.fill_triangle(triangle, GradientTriangleFillerConstructor{});
+        let par = Par3d::new(a, b - a, c - a);
+        renderer.fill_parallelogram(par, GradientParFillerConstructor{});
     }
 }
 
 
-struct GradientTriangleFillerConstructor {}
+struct GradientParFillerConstructor {}
 
-impl With<Triangle> for GradientTriangleFillerConstructor {
-    type Output = GradientTriangleFiller;
+impl With<Triangle> for GradientParFillerConstructor {
+    type Output = GradientParFiller;
 
-    fn with(self, tri: Triangle) -> GradientTriangleFiller {
-        GradientTriangleFiller::new(tri)
+    fn with(self, tri: Triangle) -> GradientParFiller {
+        GradientParFiller::new(tri)
     }
 }
 
 
-struct GradientTriangleFiller {
+struct GradientParFiller {
     coord_converter: TriangleCoordsConverter,
 }
 
-impl GradientTriangleFiller {
-    fn new(tri: Triangle) -> GradientTriangleFiller {
-        GradientTriangleFiller {coord_converter: TriangleCoordsConverter::new(tri)}
+impl GradientParFiller {
+    fn new(tri: Triangle) -> GradientParFiller {
+        GradientParFiller {coord_converter: TriangleCoordsConverter::new(tri)}
     }
 }
 
-impl ToTriangleCoords for GradientTriangleFiller {
-    fn to_triangle_coords(&self, point: Point) -> BasicPoint<f64> {
-        self.coord_converter.to_triangle_coords(point)
+impl TranslateCoords for GradientParFiller {
+    fn translate_coords(&self, point: Point) -> BasicPoint<f64> {
+        self.coord_converter.translate_coords(point)
     }
 }
 
-impl TriangleFill for GradientTriangleFiller {
+impl ParFill for GradientParFiller {
     fn color(&self, point: Point) -> RGB {
-        let BasicPoint {x, y} = self.to_triangle_coords(point);
+        let BasicPoint {x, y} = self.translate_coords(point);
         RGB::new((x * 200.0) as u8, (y * 200.0) as u8, 200)
     }
 }

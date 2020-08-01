@@ -1,3 +1,5 @@
+use crate::linalg::Matrix2d;
+
 use gcd::Gcd;
 use std::ops::{Sub, Add, Mul, Div, Neg};
 use std::mem;
@@ -122,6 +124,7 @@ impl<P: PartialEq + LiesOn> BasicTriangle<P> {
 }
 
 pub type Triangle = BasicTriangle<Point>;
+pub type Triangle3d = BasicTriangle<Point3d>;
 
 #[derive(Debug, Clone, Copy)]
 pub struct Line {
@@ -316,6 +319,8 @@ pub struct BasicVector3d<T> {
     pub y: T,
     pub z: T,
 }
+
+pub type Vector3d = BasicVector3d<f64>;
 
 impl<O, B, A: Add<B, Output = O>> Add<BasicVector3d<B>> for BasicVector3d<A> {
     type Output = BasicVector3d<O>;
@@ -517,5 +522,41 @@ impl LiesOn for Point {
 impl LiesOn for Point3d {
     fn lies_on(&self, a: &Point3d, b: &Point3d) -> bool {
         (*a - *self).angle_with(&(*b - *self)).as_radians().abs() < 1e-10
+    }
+}
+
+
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct Par3d {
+    origin: Point3d,
+    vec1: Vector3d,
+    vec2: Vector3d,
+}
+
+impl Par3d {
+    pub fn new(origin: Point3d, vec1: Vector3d, vec2: Vector3d) -> Par3d {
+        Self::try_new(origin, vec1, vec2).expect("Vectors in a 3D parallelogram must not be collinear")
+    }
+
+    pub fn try_new(origin: Point3d, vec1: Vector3d, vec2: Vector3d) -> Option<Par3d> {
+        let angle = vec1.angle_with(&vec2);
+        if angle.as_radians().abs() < 1e-12 || (angle - Angle::half_circle()).as_radians().abs() < 1e-12 { 
+            // Vectors are collinear
+            None
+        } else {
+            Some(Par3d {origin, vec1, vec2})
+        }
+    }
+
+    pub fn to_triangles(&self) -> (Triangle3d, Triangle3d) {
+        let a1 = self.origin;
+        let b1 = a1 + self.vec1;
+        let c1 = a1 + self.vec2;
+        let tri1 = Triangle3d::new(a1, b1, c1);
+        let a2 = self.origin + self.vec1 + self.vec2;
+        let b2 = c1;
+        let c2 = b1;
+        let tri2 = Triangle3d::new(a2, b2, c2);
+        (tri1, tri2)
     }
 }

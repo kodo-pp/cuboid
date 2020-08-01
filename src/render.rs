@@ -8,9 +8,11 @@ use crate::geometry::{
     HorizontalSegment,
     Line,
     Norm,
+    Par3d,
     Point,
     Point3d,
     Triangle,
+    Triangle3d,
     Triangular,
 };
 use crate::linalg::{Matrix2d, Basis};
@@ -201,21 +203,49 @@ impl Renderer<'_> {
     }
     
     pub fn fill_triangle<
-        T: TriangleFill + ToTriangleCoords,
-        FillerConstructor: With<Triangle, Output = T>
-    >(&mut self, tri: BasicTriangle<Point3d>, filler_constructor: FillerConstructor) {
-        let (a, da) = self.translate(tri.a);
-        let (b, db) = self.translate(tri.b);
-        let (c, dc) = self.translate(tri.c);
-        if let Some(triangle_on_screen) = Triangle::try_new(a, b, c) {
+        Fill: ParFill + TranslateCoords,
+        Constructor: With<Triangle, Output = Fill>
+    >(&mut self, tri: Triangle3d, filler_constructor: Constructor) {
+        let maybe_tri_and_depths = self.translate_tri(tri);
+        if let Some((triangle_on_screen, depths)) = maybe_tri_and_depths {
             let filler = filler_constructor.with(triangle_on_screen);
-            let tri_depths = (da, db, dc);
-            let mut adapter = TriangleFillDepthBufferAdapter::new(tri_depths, filler, &mut self.depth_buffer);
+            let mut adapter = ParFillDepthBufferAdapter::new(depths, filler, &mut self.depth_buffer);
+            //let mut adapter = self.make_filler(filler, depths);
             self.rasterizer.fill_triangle(triangle_on_screen, &mut adapter);
         }
     }
 
-    fn translate(&self, point: Point3d) -> (Point, f64) { 
+    fn translate_tri(&self, tri: Triangle3d) -> Option<(Triangle, (f64, f64, f64))> {
+        let (a, da) = self.translate_point(tri.a);
+        let (b, db) = self.translate_point(tri.b);
+        let (c, dc) = self.translate_point(tri.c);
+        Triangle::try_new(a, b, c).and_then(|tri| Some((tri, (da, db, dc))))
+    }
+
+    pub fn fill_parallelogram<
+        Fill: ParFill + TranslateCoords,
+        Constructor: With<Triangle, Output = Fill>,
+    >(&mut self, par: Par3d, filler_constructor: Constructor) {
+        let (tri1, tri2) = par.to_triangles();
+        self
+            .translate_tri(tri1)
+            .and_then(|(tri1_on_screen, depths)| {
+                self.translate_tri(tri2).map(|(tri2_on_screen, _)| {
+                    (tri1_on_screen, tri2_on_screen, depths)
+                })
+            })
+            .map(|(tri1_on_screen, tri2_on_screen, depths)| {
+            let mut filler = ParFillDepthBufferAdapter::new(
+                depths,
+                filler_constructor.with(tri1_on_screen),
+                &mut self.depth_buffer
+            );
+            self.rasterizer.fill_triangle(tri1_on_screen, &mut filler);
+            self.rasterizer.fill_triangle(tri2_on_screen, &mut filler);
+        });
+    }
+
+    fn translate_point(&self, point: Point3d) -> (Point, f64) { 
         let (viewport_agnostic_point, distance) = self.camera.translate(point);
         (self.viewport.translate(viewport_agnostic_point), distance)
     }
@@ -246,7 +276,7 @@ impl Rasterizer<'_> {
         ((self.width * y + x) * 4 + component) as usize
     }
 
-    pub fn fill_triangle(&mut self, tri: Triangle, filler: &mut impl TriangleFill) {
+    pub fn fill_triangle(&mut self, tri: Triangle, filler: &mut impl ParFill) {
         let (a, b, c) = tri.ysort();
         let line_hb = Line::horizontal(b.y);
         let line_ac = Line::from_points(a, c);
@@ -261,7 +291,7 @@ impl Rasterizer<'_> {
         }
     }
 
-    pub fn fill_glued_triangle(&mut self, glued_tri: GluedTriangle, filler: &mut impl TriangleFill) {
+    pub fn fill_glued_triangle(&mut self, glued_tri: GluedTriangle, filler: &mut impl ParFill) {
         let mut min = glued_tri.horizontal_segment.y();
         let mut max = glued_tri.free_point.y;
         if min > max {
@@ -297,7 +327,7 @@ pub trait Rasterize {
 }
 
 
-pub trait TriangleFill {
+pub trait ParFill {
     fn color(&self, point: Point) -> RGB;
     fn should_draw(&mut self, _point: Point) -> bool {
         true
@@ -305,8 +335,8 @@ pub trait TriangleFill {
 }
 
 
-pub trait ToTriangleCoords {
-    fn to_triangle_coords(&self, point: Point) -> BasicPoint<f64>;
+pub trait TranslateCoords {
+    fn translate_coords(&self, point: Point) -> BasicPoint<f64>;
 }
 
 
@@ -331,32 +361,32 @@ impl TriangleCoordsConverter {
     }
 }
 
-impl ToTriangleCoords for TriangleCoordsConverter {
-    fn to_triangle_coords(&self, point: Point) -> BasicPoint<f64> {
+impl TranslateCoords for TriangleCoordsConverter {
+    fn translate_coords(&self, point: Point) -> BasicPoint<f64> {
         BasicPoint::from(self.basis.coords_of((point - self.origin).map(&|x| x as f64)))
     }
 }
 
 
-struct TriangleFillDepthBufferAdapter<'a, Filler> {
+struct ParFillDepthBufferAdapter<'a, Filler> {
     tri_depths: (f64, f64, f64),
     filler: Filler,
     depth_buffer: &'a mut DepthBuffer,
 }
 
-impl<'a, Filler> TriangleFillDepthBufferAdapter<'a, Filler> {
+impl<'a, Filler> ParFillDepthBufferAdapter<'a, Filler> {
     pub fn new(
         tri_depths: (f64, f64, f64),
         filler: Filler,
         depth_buffer: &'a mut DepthBuffer
     ) -> Self {
-        TriangleFillDepthBufferAdapter {tri_depths, filler, depth_buffer}
+        ParFillDepthBufferAdapter {tri_depths, filler, depth_buffer}
     }
 }
 
-impl<Filler: ToTriangleCoords> TriangleFillDepthBufferAdapter<'_, Filler> {
+impl<Filler: TranslateCoords> ParFillDepthBufferAdapter<'_, Filler> {
     fn get_depth(&self, point: Point) -> f64 {
-        let tri_point = self.filler.to_triangle_coords(point);
+        let tri_point = self.filler.translate_coords(point);
         let base_depth = self.tri_depths.0;
         let delta_depth_b = self.tri_depths.1 - base_depth;
         let delta_depth_c = self.tri_depths.2 - base_depth;
@@ -364,7 +394,7 @@ impl<Filler: ToTriangleCoords> TriangleFillDepthBufferAdapter<'_, Filler> {
     }
 }
 
-impl<Filler: TriangleFill + ToTriangleCoords> TriangleFill for TriangleFillDepthBufferAdapter<'_, Filler> {
+impl<Filler: ParFill + TranslateCoords> ParFill for ParFillDepthBufferAdapter<'_, Filler> {
     fn color(&self, point: Point) -> RGB {
         self.filler.color(point)
     }
