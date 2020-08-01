@@ -301,12 +301,12 @@ impl Rasterizer<'_> {
         let  left_line = Line::from_points(glued_tri.horizontal_segment.left(),  glued_tri.free_point);
         let right_line = Line::from_points(glued_tri.horizontal_segment.right(), glued_tri.free_point);
 
-        for y in (min.max(0))..(max.min(self.height as i32)) {
+        for y in (min.max(0))..=(max.min(self.height as i32 - 1)) {
             let horizontal_line = Line::horizontal(y);
             let  left_isect = horizontal_line.intersect(left_line);
             let right_isect = horizontal_line.intersect(right_line);
 
-            for x in (left_isect.x.max(0))..(right_isect.x.min(self.width as i32)) {
+            for x in (left_isect.x.max(0))..=(right_isect.x.min(self.width as i32 - 1)) {
                 let point = Point {x, y};
                 if filler.should_draw(point) {
                     self.set(x as u32, y as u32, filler.color(point));
