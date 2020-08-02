@@ -160,6 +160,16 @@ impl TranslateCoords for GradientParFiller {
 impl ParFill for GradientParFiller {
     fn color(&self, point: Point) -> RGB {
         let BasicPoint {x, y} = self.translate_coords(point);
-        RGB::new((x * 200.0) as u8, (y * 200.0) as u8, 200)
+        if x < 0.05 && y < 0.05 {
+            RGB::new(255, 0, 0)
+        } else if x > 0.95 && y < 0.05 {
+            RGB::new(0, 255, 0)
+        } else if x < 0.05 && y > 0.95 {
+            RGB::new(0, 0, 255)
+        } else if x > 0.95 && y > 0.95 {
+            RGB::new(255, 255, 0)
+        } else {
+            RGB::new(100, 100, 100)
+        }
     }
 }
