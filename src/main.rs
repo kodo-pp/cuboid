@@ -1,3 +1,5 @@
+#![deny(unused_must_use)]
+
 extern crate sdl2;
 extern crate gcd;
 
@@ -5,12 +7,10 @@ mod clock;
 mod render;
 mod geometry;
 mod linalg;
-mod with;
 
-use crate::geometry::{Point, Point3d, BasicTriangle, Triangle, BasicPoint, Par3d};
-use crate::render::{RGB, Render, Renderer, ParFill, CoordsTranslator, TranslateCoords};
+use crate::geometry::{Point3d, BasicPoint, Triangle3d};
+use crate::render::{RGB, Render, Renderer};
 use crate::clock::{Clock, EventsPerSecondTracker, ApproximateTimer};
-use crate::with::With;
 
 use sdl2::{Sdl, VideoSubsystem, EventPump};
 use sdl2::event::Event;
@@ -124,9 +124,8 @@ impl Render for SpinningTriangle {
         let a = Point3d {x:  100.0 * t.cos(), y:  30.0, z: 200.0 + 100.0 * t.sin()};
         let b = Point3d {x:  100.0 * t.cos(), y: -30.0, z: 200.0 + 100.0 * t.sin()};
         let c = Point3d {x: -100.0 * t.cos(), y:  30.0, z: 200.0 - 100.0 * t.sin()};
-        let par = Par3d::new(a, b - a, c - a);
-        renderer.fill_parallelogram(par, |(x, y)| {
-            let BasicPoint {x, y} = self.translate_coords(point);
+        let tri = Triangle3d::new(a, b, c);
+        renderer.fill_triangle(tri, |BasicPoint {x, y}| {
             Some(
                 if x < 0.05 && y < 0.05 {
                     RGB::new(255, 0, 0)
@@ -141,50 +140,5 @@ impl Render for SpinningTriangle {
                 }
             )
         });
-    }
-}
-
-
-struct GradientParFillerConstructor {}
-
-impl With<Triangle> for GradientParFillerConstructor {
-    type Output = GradientParFiller;
-
-    fn with(self, tri: Triangle) -> GradientParFiller {
-        GradientParFiller::new(tri)
-    }
-}
-
-
-struct GradientParFiller {
-    coord_converter: CoordsTranslator,
-}
-
-impl GradientParFiller {
-    fn new(tri: Triangle) -> GradientParFiller {
-        GradientParFiller {coord_converter: CoordsTranslator::new(tri)}
-    }
-}
-
-impl TranslateCoords for GradientParFiller {
-    fn translate_coords(&self, point: Point) -> BasicPoint<f64> {
-        self.coord_converter.translate_coords(point)
-    }
-}
-
-impl ParFill for GradientParFiller {
-    fn color(&self, point: Point) -> RGB {
-        let BasicPoint {x, y} = self.translate_coords(point);
-        if x < 0.05 && y < 0.05 {
-            RGB::new(255, 0, 0)
-        } else if x > 0.95 && y < 0.05 {
-            RGB::new(0, 255, 0)
-        } else if x < 0.05 && y > 0.95 {
-            RGB::new(0, 0, 255)
-        } else if x > 0.95 && y > 0.95 {
-            RGB::new(255, 255, 0)
-        } else {
-            RGB::new(100, 100, 100)
-        }
     }
 }

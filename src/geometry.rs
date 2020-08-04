@@ -4,7 +4,7 @@ use gcd::Gcd;
 use std::ops::{Sub, Add, Mul, Div, Neg};
 use std::mem;
 use std::fmt::Debug;
-use core::f64::consts::{PI, FRAC_PI_2};
+use core::f64::consts::FRAC_PI_2;
 
 
 #[derive(Debug, Copy, Clone, PartialEq, Eq)]
@@ -58,12 +58,9 @@ pub struct BasicVector<T> {
     pub y: T,
 }
 
-impl<T> BasicVector<T> {
-    pub fn map<P>(self, func: &impl Fn(T) -> P) -> BasicVector<P> {
-        BasicVector {
-            x: func(self.x),
-            y: func(self.y),
-        }
+impl<T: Neg<Output = T>> BasicVector<T> {
+    pub fn perp(self) -> BasicVector<T> {
+        BasicVector {x: -self.y, y: self.x}
     }
 }
 
@@ -279,6 +276,43 @@ impl Triangular for GluedTriangle {
 }
 
 
+pub trait Triangular3d {
+    fn points(&self) -> (Point3d, Point3d, Point3d);
+
+    fn sort_points<K: PartialOrd>(&self, key: impl Fn(Point3d) -> K) -> (Point3d, Point3d, Point3d) {
+        let (mut a, mut b, mut c) = self.points();
+        if key(a) > key(b) {
+            mem::swap(&mut a, &mut b);
+        }
+        if key(b) > key(c) {
+            mem::swap(&mut b, &mut c);
+        }
+        if key(a) > key(b) {
+            mem::swap(&mut a, &mut b);
+        }
+        (a, b, c)
+    }
+
+    fn xsort(&self) -> (Point3d, Point3d, Point3d) {
+        self.sort_points(|p| p.x)
+    }
+
+    fn ysort(&self) -> (Point3d, Point3d, Point3d) {
+        self.sort_points(|p| p.y)
+    }
+
+    fn zsort(&self) -> (Point3d, Point3d, Point3d) {
+        self.sort_points(|p| p.z)
+    }
+}
+
+impl Triangular3d for Triangle3d {
+    fn points(&self) -> (Point3d, Point3d, Point3d) {
+        (self.a, self.b, self.c)
+    }
+}
+
+
 #[derive(Debug, Copy, Clone, PartialEq, Eq)]
 pub struct BasicPoint3d<T> {
     pub x: T,
@@ -318,6 +352,13 @@ impl<O, B, A: Sub<B, Output = O>> Sub<BasicVector3d<B>> for BasicPoint3d<A> {
     }
 }
 
+impl<T> From<(T, T, T)> for BasicPoint3d<T> {
+    fn from(tuple: (T, T, T)) -> BasicPoint3d<T> {
+        let (x, y, z) = tuple;
+        BasicPoint3d {x, y, z}
+    }
+}
+
 
 #[derive(Debug, Copy, Clone, Eq, PartialEq)]
 pub struct BasicVector3d<T> {
@@ -331,6 +372,14 @@ pub type Vector3d = BasicVector3d<f64>;
 impl Vector3d {
     pub fn approx(self, other: Vector3d) -> bool {
         (self - other).norm_sq() < 1e-10
+    }
+
+    pub fn onto_xy(self) -> BasicVector<f64> {
+        BasicVector {x: self.x, y: self.y}
+    }
+
+    pub fn onto_xz_3d(self) -> Vector3d {
+        Vector3d {x: self.x, y: 0.0, z: self.z}
     }
 }
 
@@ -356,11 +405,26 @@ impl<O, B, A: Sub<B, Output = O>> Sub<BasicVector3d<B>> for BasicVector3d<A> {
     }
 }
 
+impl<O, B: Copy, A: Mul<B, Output = O>> Mul<B> for BasicVector3d<A> {
+    type Output = BasicVector3d<O>;
+
+    fn mul(self, scalar: B) -> BasicVector3d<O> {
+        BasicVector3d {x: self.x * scalar, y: self.y * scalar, z: self.z * scalar}
+    }
+}
+
 impl<O, T: Neg<Output = O>> Neg for BasicVector3d<T> {
     type Output = BasicVector3d<O>;
 
     fn neg(self) -> BasicVector3d<O> {
         BasicVector3d { x: -self.x, y: -self.y, z: -self.z }
+    }
+}
+
+impl<T> From<(T, T, T)> for BasicVector3d<T> {
+    fn from(tuple: (T, T, T)) -> BasicVector3d<T> {
+        let (x, y, z) = tuple;
+        BasicVector3d {x, y, z}
     }
 }
 
@@ -385,27 +449,6 @@ impl Angle {
         Angle(FRAC_PI_2)
     }
 
-    pub fn half_circle() -> Angle {
-        Angle(PI)
-    }
-
-    pub fn circle() -> Angle {
-        Angle(2.0 * PI)
-    }
-
-    pub fn into_plus_minus_pi_interval(self) -> Angle {
-        let zero_2pi_angle = self.into_zero_2pi_interval();
-        if zero_2pi_angle > Angle::half_circle() {
-            zero_2pi_angle - Angle::circle()
-        } else {
-            zero_2pi_angle
-        }
-    }
-
-    pub fn into_zero_2pi_interval(self) -> Angle {
-        Angle(self.0.rem_euclid(2.0 * PI))
-    }
-
     #[allow(dead_code)]
     pub fn as_radians(self) -> f64 {
         self.0
@@ -419,6 +462,22 @@ impl Angle {
     pub fn rotation_matrix(self) -> Matrix2d<f64> {
         let (sin, cos) = self.0.sin_cos();
         Matrix2d::from_rows((cos, -sin), (sin, cos))
+    }
+}
+
+impl Neg for Angle {
+    type Output = Angle;
+
+    fn neg(self) -> Angle {
+        Angle(-self.0)
+    }
+}
+
+impl Add for Angle {
+    type Output = Angle;
+
+    fn add(self, other: Angle) -> Angle {
+        Angle(self.0 + other.0)
     }
 }
 
@@ -486,7 +545,7 @@ impl<
 
 
 pub trait Norm {
-    type Output: Mul<Output = Self::Output>;
+    type Output: Mul<Output = Self::Output> + Copy;
 
     fn norm(&self) -> Self::Output;
     fn norm_sq(&self) -> Self::Output {
@@ -557,8 +616,8 @@ pub trait Vangle {
 
 impl Vangle for Vector3d {
     fn vangle(&self) -> Angle {
-        let xz_projection = self.onto_xz();
-        let angle_abs = self.angle_with(xz_projection);
+        let xz_projection = self.onto_xz_3d();
+        let angle_abs = self.angle_with(&xz_projection);
         let angle_sign = self.y.signum();
         angle_abs * angle_sign
     }
@@ -582,59 +641,23 @@ impl LiesOn for Point3d {
 }
 
 
-#[derive(Debug, Clone, Copy, PartialEq)]
-pub struct Par3d {
-    origin: Point3d,
-    vec1: Vector3d,
-    vec2: Vector3d,
-}
-
-impl Par3d {
-    pub fn new(origin: Point3d, vec1: Vector3d, vec2: Vector3d) -> Par3d {
-        Self::try_new(origin, vec1, vec2).expect("Vectors in a 3D parallelogram must not be collinear")
-    }
-
-    pub fn try_new(origin: Point3d, vec1: Vector3d, vec2: Vector3d) -> Option<Par3d> {
-        let angle = vec1.angle_with(&vec2);
-        if angle.as_radians().abs() < 1e-12 || (angle - Angle::half_circle()).as_radians().abs() < 1e-12 { 
-            // Vectors are collinear
-            None
-        } else {
-            Some(Par3d {origin, vec1, vec2})
-        }
-    }
-
-    pub fn to_triangles(&self) -> (Triangle3d, Triangle3d) {
-        let a1 = self.origin;
-        let b1 = a1 + self.vec1;
-        let c1 = a1 + self.vec2;
-        let tri1 = Triangle3d::new(a1, b1, c1);
-        let a2 = self.origin + self.vec1 + self.vec2;
-        let b2 = c1;
-        let c2 = b1;
-        let tri2 = Triangle3d::new(a2, b2, c2);
-        (tri1, tri2)
-    }
-}
-
-
 pub trait Rotate3d {
-    fn rotate_3d(self, delta_azimuth: Angle) -> Self;
+    fn rotate_3d(self, delta_azimuth: Angle, delta_vangle: Angle) -> Self;
 }
 
 impl Rotate3d for Vector3d {
     fn rotate_3d(self, delta_azimuth: Angle, delta_vangle: Angle) -> Self {
-        let rotate_xz = |vec, ang| {
+        let rotate_xz = |vec: Vector3d, ang: Angle| {
             let vec2d = BasicVector::<f64> {x: vec.x, y: vec.z};  // `y: vec.z` is not a typo
             let matrix = ang.rotation_matrix();
-            let (x, z) = (matrix * vec2d)::into();
+            let (x, z) = (matrix * vec2d).into();
             Vector3d {x, y: vec.y, z}
         };
 
-        let rotate_xy = |vec, ang| {
+        let rotate_xy = |vec: Vector3d, ang: Angle| {
             let vec2d = BasicVector::<f64> {x: vec.x, y: vec.y};
             let matrix = ang.rotation_matrix();
-            let (x, y) = (matrix * vec2d)::into();
+            let (x, y) = (matrix * vec2d).into();
             Vector3d {x, y, z: vec.z}
         };
 
@@ -653,7 +676,7 @@ pub struct Segment<P> {
     b: P,
 }
 
-impl<P: Copy> Segment<P> {
+impl<P: Copy + PartialEq> Segment<P> {
     pub fn try_from_points(a: P, b: P) -> Option<Self> {
         if a == b {
             None
@@ -685,28 +708,30 @@ pub struct Plane {
 }
 
 impl Plane {
+    pub fn from_origin_and_vectors(origin: Point3d, vec1: Vector3d, vec2: Vector3d) -> Plane {
+        Self::try_from_origin_and_vectors(origin, vec1, vec2)
+            .expect("Plane is not uniquely determined by collinear vectors")
+    }
+
+    pub fn try_from_origin_and_vectors(origin: Point3d, vec1: Vector3d, vec2: Vector3d) -> Option<Plane> {
+        let p1 = origin + vec1;
+        let p2 = origin + vec2;
+        Triangle3d::try_new(origin, p1, p2).map(Self::from)
+    }
+
     pub fn coefficients(self) -> (f64, f64, f64, f64) {
         (self.a, self.b, self.c, self.d)
     }
 
-    pub fn basis_vectors(self) -> (Vector3d, Vector3d) {
-        let vec_a = Vector3d {x: self.b * self.c,  y:              -1,  z:              -1};
-        let vec_b = Vector3d {x:              -1,  y: self.a * self.c,  z:              -1};
-        let vec_c = Vector3d {x:              -1,  y:              -1,  z: self.a * self.b};
-
-        // The vectors obviously are collinear to the plane, since they are orthogonal to
-        // its normal vector (a, b, c). In addition, they are constructed in such a way that
-        // if u, v \in {vec_a, vec_b, vec_c}, then (u is collinear to v) \iff (u == v).
-        
-        // Since calculations with floating point numbers are performed, the relation "=="
-        // (exactly equals) is replaced with "≈" a.k.a. `.approx()` (approximately equals).
-    
-        if !vec_a.approx(vec_b) {
-            (vec_a, vec_b)
-        } else if !vec_b.approx(vec_c) {
-            (vec_b, vec_c)
+    pub fn intersect(self, line: Line3d) -> Option<Point3d> {
+        if self.collinear_with(&line.direction()) {
+            None
         } else {
-            (vec_a, vec_c)
+            let o = line.origin();
+            let v = line.direction();
+            let (a, b, c, d) = self.coefficients();
+            let k = -(a * o.x + b * o.y + c * o.z + d) / (a * v.x + b * v.y + c * v.z);
+            Some(o + v * k)
         }
     }
 }
@@ -727,6 +752,17 @@ impl From<Triangle3d> for Plane {
         let b = (p2.z - p3.z) * p1.x - (p1.z - p3.z) * p2.x + (p1.z - p2.z) * p3.x;
         let c = (p2.x - p3.x) * p1.y - (p1.x - p3.x) * p2.y + (p1.x - p2.x) * p3.y;
         Plane {a, b, c, d}
+    }
+}
+
+
+pub trait CollinearWith<T> {
+    fn collinear_with(&self, object: &T) -> bool;
+}
+
+impl CollinearWith<Vector3d> for Plane {
+    fn collinear_with(&self, vec: &Vector3d) -> bool {
+        (self.a * vec.x + self.b * vec.y + self.c * vec.z).abs() < 1e-12
     }
 }
 
@@ -763,5 +799,29 @@ impl OntoWithBasis<Plane, (Vector3d, Vector3d)> for Point3d {
         let v = matrix_no_q.det() * common_factor;
 
         BasicPoint {x: u, y: v}
+    }
+}
+
+
+#[derive(Debug, Clone, Copy)]
+pub struct Line3d {
+    origin: Point3d,
+    direction: Vector3d,
+}
+
+impl Line3d {
+    pub fn from_points(a: Point3d, b: Point3d) -> Line3d {
+        if (a - b).approx(Vector3d {x: 0.0, y: 0.0, z: 0.0}) {
+            panic!("More than one line passes through two coinciding points in 3D space");
+        }
+        Line3d {origin: a, direction: b - a}
+    }
+
+    pub fn origin(&self) -> Point3d {
+        self.origin
+    }
+
+    pub fn direction(&self) -> Vector3d {
+        self.direction
     }
 }
