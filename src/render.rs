@@ -477,6 +477,16 @@ impl<'a, 'b, F: OrigColorFunc> CoordsTranslationAdapter<'a, 'b, F> {
     }
 
     fn bilinear_untranslate(&self, point_on_screen: Point) -> Point3d {
+        if point_on_screen == self.triangle_on_screen.a {
+            return self.triangle.a;
+        }
+        if point_on_screen == self.triangle_on_screen.b {
+            return self.triangle.b;
+        }
+        if point_on_screen == self.triangle_on_screen.c {
+            return self.triangle.c;
+        }
+
         let base_line = Line::from_points(self.triangle_on_screen.b, self.triangle_on_screen.c);
         let pivot_line = Line::from_points(self.triangle_on_screen.a, point_on_screen);
         let pivot_point = base_line.intersect(pivot_line);
@@ -485,6 +495,11 @@ impl<'a, 'b, F: OrigColorFunc> CoordsTranslationAdapter<'a, 'b, F> {
             (self.triangle_on_screen.b, self.triangle.b),
             (self.triangle_on_screen.c, self.triangle.c),
         );
+        
+        if point_on_screen == pivot_point {
+            return pivot_point_3d;
+        }
+        
         let point_3d = self.linear_untranslate(
             point_on_screen,
             (self.triangle_on_screen.a, self.triangle.a),
