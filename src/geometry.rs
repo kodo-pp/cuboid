@@ -21,6 +21,12 @@ impl<T> From<(T, T)> for BasicPoint<T> {
     }
 }
 
+impl<T> Into<(T, T)> for BasicPoint<T> {
+    fn into(self) -> (T, T) {
+        (self.x, self.y)
+    }
+}
+
 impl<O, B, A: Add<B, Output = O>> Add<BasicVector<B>> for BasicPoint<A> {
     type Output = BasicPoint<O>;
 
@@ -322,6 +328,18 @@ pub struct BasicVector3d<T> {
 
 pub type Vector3d = BasicVector3d<f64>;
 
+impl Vector3d {
+    pub fn approx(self, other: Vector3d) -> bool {
+        (self - other).norm_sq() < 1e-10
+    }
+}
+
+impl<T> BasicVector3d<T> {
+    pub fn as_point(self) -> BasicPoint3d<T> {
+        BasicPoint3d {x: self.x, y: self.y, z: self.z}
+    }
+}
+
 impl<O, B, A: Add<B, Output = O>> Add<BasicVector3d<B>> for BasicVector3d<A> {
     type Output = BasicVector3d<O>;
 
@@ -397,6 +415,11 @@ impl Angle {
     pub fn as_degrees(self) -> f64 {
         self.0.to_degrees()
     }
+
+    pub fn rotation_matrix(self) -> Matrix2d<f64> {
+        let (sin, cos) = self.0.sin_cos();
+        Matrix2d::from_rows((cos, -sin), (sin, cos))
+    }
 }
 
 impl Sub for Angle {
@@ -463,8 +486,13 @@ impl<
 
 
 pub trait Norm {
-    type Output;
+    type Output: Mul<Output = Self::Output>;
+
     fn norm(&self) -> Self::Output;
+    fn norm_sq(&self) -> Self::Output {
+        let x = self.norm();
+        x * x
+    }
 }
 
 impl Norm for BasicVector<f64> {
@@ -473,13 +501,21 @@ impl Norm for BasicVector<f64> {
     fn norm(&self) -> f64 {
         self.x.hypot(self.y)
     }
+
+    fn norm_sq(&self) -> f64 {
+        self.x.powi(2) + self.y.powi(2)
+    }
 }
 
 impl Norm for BasicVector3d<f64> {
     type Output = f64;
 
     fn norm(&self) -> f64 {
-        (self.x.powi(2) + self.y.powi(2) + self.z.powi(2)).sqrt()
+        self.norm_sq().sqrt()
+    }
+
+    fn norm_sq(&self) -> f64 {
+        self.x.powi(2) + self.y.powi(2) + self.z.powi(2)
     }
 }
 
@@ -505,6 +541,26 @@ pub trait Azimuth {
 impl Azimuth for BasicVector<f64> {
     fn azimuth(&self) -> Angle {
         Angle::from_radians(self.y.atan2(self.x))
+    }
+}
+
+impl Azimuth for Vector3d {
+    fn azimuth(&self) -> Angle {
+        (BasicVector {x: self.x, y: self.z}).azimuth()
+    }
+}
+
+
+pub trait Vangle {
+    fn vangle(&self) -> Angle;
+}
+
+impl Vangle for Vector3d {
+    fn vangle(&self) -> Angle {
+        let xz_projection = self.onto_xz();
+        let angle_abs = self.angle_with(xz_projection);
+        let angle_sign = self.y.signum();
+        angle_abs * angle_sign
     }
 }
 
@@ -558,5 +614,154 @@ impl Par3d {
         let c2 = b1;
         let tri2 = Triangle3d::new(a2, b2, c2);
         (tri1, tri2)
+    }
+}
+
+
+pub trait Rotate3d {
+    fn rotate_3d(self, delta_azimuth: Angle) -> Self;
+}
+
+impl Rotate3d for Vector3d {
+    fn rotate_3d(self, delta_azimuth: Angle, delta_vangle: Angle) -> Self {
+        let rotate_xz = |vec, ang| {
+            let vec2d = BasicVector::<f64> {x: vec.x, y: vec.z};  // `y: vec.z` is not a typo
+            let matrix = ang.rotation_matrix();
+            let (x, z) = (matrix * vec2d)::into();
+            Vector3d {x, y: vec.y, z}
+        };
+
+        let rotate_xy = |vec, ang| {
+            let vec2d = BasicVector::<f64> {x: vec.x, y: vec.y};
+            let matrix = ang.rotation_matrix();
+            let (x, y) = (matrix * vec2d)::into();
+            Vector3d {x, y, z: vec.z}
+        };
+
+        let old_azimuth = self.azimuth();
+        let self_north = rotate_xz(self, -old_azimuth);
+        let result_north = rotate_xy(self_north, delta_vangle); // TODO: cap vangle at ±90°
+        let new_azimuth = old_azimuth + delta_azimuth;
+        rotate_xz(result_north, new_azimuth)
+    }
+}
+
+
+#[derive(Debug, Clone, Copy, Eq, PartialEq)]
+pub struct Segment<P> {
+    a: P,
+    b: P,
+}
+
+impl<P: Copy> Segment<P> {
+    pub fn try_from_points(a: P, b: P) -> Option<Self> {
+        if a == b {
+            None
+        } else {
+            Some(Segment {a, b})
+        }
+    }
+
+    pub fn from_points(a: P, b: P) -> Self {
+        Self::try_from_points(a, b).expect("Ends of segment cannot coincide")
+    }
+
+    pub fn a(self) -> P {
+        self.a
+    }
+
+    pub fn b(self) -> P {
+        self.b
+    }
+}
+
+
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct Plane {
+    a: f64,
+    b: f64,
+    c: f64,
+    d: f64,
+}
+
+impl Plane {
+    pub fn coefficients(self) -> (f64, f64, f64, f64) {
+        (self.a, self.b, self.c, self.d)
+    }
+
+    pub fn basis_vectors(self) -> (Vector3d, Vector3d) {
+        let vec_a = Vector3d {x: self.b * self.c,  y:              -1,  z:              -1};
+        let vec_b = Vector3d {x:              -1,  y: self.a * self.c,  z:              -1};
+        let vec_c = Vector3d {x:              -1,  y:              -1,  z: self.a * self.b};
+
+        // The vectors obviously are collinear to the plane, since they are orthogonal to
+        // its normal vector (a, b, c). In addition, they are constructed in such a way that
+        // if u, v \in {vec_a, vec_b, vec_c}, then (u is collinear to v) \iff (u == v).
+        
+        // Since calculations with floating point numbers are performed, the relation "=="
+        // (exactly equals) is replaced with "≈" a.k.a. `.approx()` (approximately equals).
+    
+        if !vec_a.approx(vec_b) {
+            (vec_a, vec_b)
+        } else if !vec_b.approx(vec_c) {
+            (vec_b, vec_c)
+        } else {
+            (vec_a, vec_c)
+        }
+    }
+}
+
+impl From<Triangle3d> for Plane {
+    fn from(tri: Triangle3d) -> Plane {
+        let (p1, p2, p3) = tri.points();
+        // d = -Matrix3d::from_columns(p1.into(), p2.into(), p3.into()).det()
+        // But I'm too lazy to write `Matrix3d` and `Into<(T, T, T)> for BasicPoint3d`
+        let d = p3.x * p2.y * p1.z
+              + p1.x * p3.y * p2.z
+              + p2.x * p1.y * p3.z
+              - p2.x * p3.y * p1.z
+              - p3.x * p1.y * p2.z
+              - p1.x * p2.y * p3.z;
+        
+        let a = (p2.y - p3.y) * p1.z - (p1.y - p3.y) * p2.z + (p1.y - p2.y) * p3.z;
+        let b = (p2.z - p3.z) * p1.x - (p1.z - p3.z) * p2.x + (p1.z - p2.z) * p3.x;
+        let c = (p2.x - p3.x) * p1.y - (p1.x - p3.x) * p2.y + (p1.x - p2.x) * p3.y;
+        Plane {a, b, c, d}
+    }
+}
+
+
+pub trait OntoWithBasis<T, B> {
+    type Output;
+
+    fn onto_with_basis(self, object: T, basis: B) -> Self::Output;
+}
+
+impl OntoWithBasis<Plane, (Vector3d, Vector3d)> for Point3d {
+    type Output = BasicPoint<f64>;
+
+    fn onto_with_basis(self, plane: Plane, basis: (Vector3d, Vector3d)) -> Self::Output {
+        let (a, b, c, d) = plane.coefficients();
+        let t = -(a * self.x + b * self.y + c * self.z + d) / (a.powi(2) + b.powi(2) + c.powi(2));
+
+        let x = self.x + a * t;
+        let y = self.y + b * t;
+        let (p, q) = basis;
+
+        // Z coordinates are unneeded since we guarantee that the point lies on the plane
+        let p = p.onto_xy();
+        let q = q.onto_xy();
+        let s = BasicVector {x, y};
+
+        let matrix_full = Matrix2d::from_columns(p.into(), q.into());
+        let matrix_no_p = Matrix2d::from_columns(s.into(), q.into());
+        let matrix_no_q = Matrix2d::from_columns(p.into(), s.into());
+        let common_factor = matrix_full.det().recip();
+
+        // Find the coordinates of the projected point w.r.t. p and q using Cramer's rule
+        let u = matrix_no_p.det() * common_factor;
+        let v = matrix_no_q.det() * common_factor;
+
+        BasicPoint {x: u, y: v}
     }
 }

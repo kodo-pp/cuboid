@@ -11,9 +11,11 @@ use crate::geometry::{
     Par3d,
     Point,
     Point3d,
+    Rotate3d,
     Triangle,
     Triangle3d,
     Triangular,
+    Vangle,
 };
 use crate::linalg::{Matrix2d, Basis};
 use crate::with::With;
@@ -67,60 +69,103 @@ impl RGB {
 }
 
 
+pub enum SegmentTranslatability {
+    Translatable,
+    SemiTranslatable {intersection: Point3d},
+    NonTranslatable,
+}
+
+
 pub struct Camera {
     position: Point3d,
     azimuth: Angle,
     vertical_angle: Angle,
-    hfov: Angle,
-    vfov: Angle,
-    hfov_half_cot: f64,
+    hfov_half_cot_half: f64,
+    vfov_half_cot_half: f64,
+    hfov_half_cot_half_recip: f64,
+    vfov_half_cot_half_recip: f64,
 }
 
 impl Camera {
     pub fn new() -> Camera {
         let hfov = Angle::from_degrees(100.0);
+        let vfov = Angle::from_degrees(70.0);
+        let hfov_half_cot_half = (hfov * 0.5).as_radians().tan().recip() * 0.5;
+        let vfov_half_cot_half = (vfov * 0.5).as_radians().tan().recip() * 0.5;
+        let hfov_half_cot_half_recip = hfov_half_cot_half.recip();
+        let vfov_half_cot_half_recip = vfov_half_cot_half.recip();
+
         Camera {
             position: Point3d{x: 0.0, y: 0.0, z: 0.0},
             azimuth: Angle::quarter_circle(),
             vertical_angle: Angle::zero(),
-            hfov,
-            vfov: Angle::from_degrees(70.0),
-            hfov_half_cot: (hfov / 2.0).as_radians().tan().recip(),
         }
     }
 
-    pub fn translate(&self, point: Point3d) -> (BasicPoint<f64>, f64) {
-        // Adjust the cartesian coordinates of the point
+    pub fn adjust(&self, point: Point3d) -> Point3d {
         let point = point - self.position.as_vector();
+        point.as_vector().rotate_3d(-self.azimuth, -self.vertical_angle).as_point()
+    }
+
+    pub fn can_translate_point(&self, adjusted_point: Point3d) -> bool {
+        // More conservative check as compared to the one in `translate`
+        adjusted_point.x > 1e-3
+    }
+
+    pub fn can_translate_segment(&self, adjusted_segment: Segment<Point3d>) -> SegmentTranslatability {
+        let a = adjusted_segment.a();
+        let b = adjusted_segment.b();
+        let can_a = self.can_translate_point(a);
+        let can_b = self.can_translate_point(b);
+
+        use SegmentTranslatability::*;
+        match (can_a, can_b) {
+            (true, true) => Translatable,
+            (false, false) => NonTranslatable,
+            _ => {
+                // Compute the point of intersection of the segment and `x = 0` plane
+                let x = 0;
+                let y = (a.x * b.y - a.y * b.x) / (a.x - b.x);
+                let z = (a.x * b.z - a.z * b.x) / (a.x - b.x);
+                SemiTranslatable(Point3d {x, y, z})
+            }
+        }
+    }
+
+    pub fn translate(&self, adjusted_point: Point3d) -> (BasicPoint<f64>, f64) {
+        // Perform sanity check
+        if adjusted_point.x <= 0.0 {
+            // More liberal check as compared to the one in `can_translate_point`
+            panic!("A point behind the camera cannot be projected onto the screen");
+        }
 
         // Calculate azimuth
         let vector = point.as_vector();
-        let horizontal_vector = {
-            let mut result = vector;
-            result.y = 0.0;
-            result
-        };
-        let azimuth = {
-            let plane_vector = BasicVector::<f64> {x: horizontal_vector.x, y: horizontal_vector.z};
-            plane_vector.azimuth()
-        };
+        let azimuth = vector.azimuth();
+        let vangle = vector.vangle();
 
-        // Adjust azimuth
-        let azimuth = (azimuth - self.azimuth).into_plus_minus_pi_interval();
+        // Convert angles to 2D coordinates
+        let x = azimuth.as_radians().tan() * self.hfov_half_cot_half + 0.5;
+        let y =  vangle.as_radians().tan() * self.vfov_half_cot_half + 0.5;
 
-        // Calculate vertical angle
-        let vertical_angle = {
-            let corrected_horizontal_vector_norm = horizontal_vector.norm() * azimuth.as_radians().cos();
-            let vertical_distance = vector.y;
-            Angle::from_radians(vertical_distance.atan2(corrected_horizontal_vector_norm))
-        };
+        (BasicPoint{x, y}, vector.norm())
+    }
 
-        // Adjust angles
-        let vertical_angle = vertical_angle - self.vertical_angle;
-        // Transform angles to 2D coordinates
-        let coord_x = azimuth.as_radians().tan() * self.hfov_half_cot * 0.5 + 0.5;
-        let coord_y = vertical_angle / self.vfov + 0.5;
-        (BasicPoint{x: coord_x, y: coord_y}, vector.norm())
+    pub fn untranslate(&self, viewport_agnostic_point: BasicPoint<f64>, distance: f64) -> Point3d {
+        let (x, y) = viewport_agnostic_point.into();
+        let azimuth = Angle::from_radians(((x - 0.5) * self.hfov_half_cot_half_recip).atan());
+        let vangle  = Angle::from_radians(((y - 0.5) * self.vfov_half_cot_half_recip).atan());
+
+        let x = distance * azimuth.cos() * vangle.cos();
+        let y = distance * vangle.sin();
+        let z = distance * azimuth.sin() * vangle.cos();
+        let vector = Vector3d {x, y, z};
+        let point = vector.as_point();
+
+        // Sanity check
+        assert!(self.can_translate_point(point));
+
+        point
     }
 }
 
@@ -157,6 +202,14 @@ impl DepthBuffer {
         let mut depth_buffer = Vec::<f32>::with_capacity(buffer_size);
         depth_buffer.resize(buffer_size, f32::INFINITY);
         DepthBuffer {depth_buffer, width, height}
+    }
+
+    pub fn try_coords_from_point(&self, point: Point) -> Option<(u32, u32)> {
+        if point.x < 0 || point.y < 0 || self.index_at_checked(point.x as u32, point.y as u32).is_none() {
+            None
+        } else {
+            Some((point.x as u32, point.y as u32))
+        }
     }
 
     pub fn try_update(&mut self, x: u32, y: u32, value: f32) -> bool {
@@ -202,50 +255,54 @@ impl Renderer<'_> {
         }
     }
     
-    pub fn fill_triangle<
-        Fill: ParFill + TranslateCoords,
-        Constructor: With<Triangle, Output = Fill>
-    >(&mut self, tri: Triangle3d, filler_constructor: Constructor) {
+    pub fn fill_triangle(&mut self, triangle: Triangle3d, color_func: impl OrigColorFunc) {
+        let u = triangle.b - triangle.a;
+        let v = triangle.c - triangle.a;
+        self.fill_triangle_with_basis_vecs(triangle, color_func, (u, v));
+    }
+
+    pub fn fill_triangle_with_basis_vecs(
+        &mut self,
+        triangle: Triangle3d,
+        color_func: impl OrigColorFunc,
+        basis_vecs: (Vector3d, Vector3d),
+    ) {
+        let triangles_to_draw = self.split_if_necessary(triangle);
+        triangles_to_draw
+            .into_iter()
+            .flatten()
+            .map(|tri| self.fill_translatable_triangle(tri, color_func, basis_vecs));
+    }
+
+    fn fill_translatable_triangle(
+        &mut self,
+        triangle: Triangle3d,
+        color_func: impl OrigColorFunc,
+        basis_vecs: (Vector3d, Vector3d),
+    ) {
         let maybe_tri_and_depths = self.translate_tri(tri);
-        if let Some((triangle_on_screen, depths)) = maybe_tri_and_depths {
-            let filler = filler_constructor.with(triangle_on_screen);
-            let mut adapter = ParFillDepthBufferAdapter::new(depths, filler, &mut self.depth_buffer);
-            //let mut adapter = self.make_filler(filler, depths);
-            self.rasterizer.fill_triangle(triangle_on_screen, &mut adapter);
+        if let Some(triangle_on_screen) = maybe_tri_and_depths {
+            let adapted = CoordsTranslationAdapter::new(
+                color_func,
+                triangle,
+                triangle_on_screen,
+                basis_vecs,
+                &self.viewport,
+                &self.camera,
+            );
+            let mut proxied = DepthBufferProxy::new(adapted, &mut self.depth_buffer);
+            self.rasterizer.fill_triangle(triangle_on_screen, &mut proxied);
         }
     }
 
-    fn translate_tri(&self, tri: Triangle3d) -> Option<(Triangle, (f64, f64, f64))> {
-        let (a, da) = self.translate_point(tri.a);
-        let (b, db) = self.translate_point(tri.b);
-        let (c, dc) = self.translate_point(tri.c);
-        Triangle::try_new(a, b, c).and_then(|tri| Some((tri, (da, db, dc))))
+    fn translate_tri(&self, tri: Triangle3d) -> Option<Triangle> {
+        let (a, _da) = self.translate_point(tri.a);
+        let (b, _db) = self.translate_point(tri.b);
+        let (c, _dc) = self.translate_point(tri.c);
+        Triangle::try_new(a, b, c)
     }
 
-    pub fn fill_parallelogram<
-        Fill: ParFill + TranslateCoords,
-        Constructor: With<Triangle, Output = Fill>,
-    >(&mut self, par: Par3d, filler_constructor: Constructor) {
-        let (tri1, tri2) = par.to_triangles();
-        self
-            .translate_tri(tri1)
-            .and_then(|(tri1_on_screen, depths)| {
-                self.translate_tri(tri2).map(|(tri2_on_screen, _)| {
-                    (tri1_on_screen, tri2_on_screen, depths)
-                })
-            })
-            .map(|(tri1_on_screen, tri2_on_screen, depths)| {
-            let mut filler = ParFillDepthBufferAdapter::new(
-                depths,
-                filler_constructor.with(tri1_on_screen),
-                &mut self.depth_buffer
-            );
-            self.rasterizer.fill_triangle(tri1_on_screen, &mut filler);
-            self.rasterizer.fill_triangle(tri2_on_screen, &mut filler);
-        });
-    }
-
-    fn translate_point(&self, point: Point3d) -> (Point, f64) { 
+    fn translate_point(&self, point: Point3d) -> (Point, f64) {
         let (viewport_agnostic_point, distance) = self.camera.translate(point);
         (self.viewport.translate(viewport_agnostic_point), distance)
     }
@@ -276,7 +333,7 @@ impl Rasterizer<'_> {
         ((self.width * y + x) * 4 + component) as usize
     }
 
-    pub fn fill_triangle(&mut self, tri: Triangle, filler: &mut impl ParFill) {
+    pub fn fill_triangle(&mut self, tri: Triangle, color_func: &mut impl ColorFunc) {
         let (a, b, c) = tri.ysort();
         let line_hb = Line::horizontal(b.y);
         let line_ac = Line::from_points(a, c);
@@ -291,7 +348,7 @@ impl Rasterizer<'_> {
         }
     }
 
-    pub fn fill_glued_triangle(&mut self, glued_tri: GluedTriangle, filler: &mut impl ParFill) {
+    pub fn fill_glued_triangle(&mut self, glued_tri: GluedTriangle, color_func: &mut impl ColorFunc) {
         let mut min = glued_tri.horizontal_segment.y();
         let mut max = glued_tri.free_point.y;
         if min > max {
@@ -308,8 +365,8 @@ impl Rasterizer<'_> {
 
             for x in (left_isect.x.max(0))..=(right_isect.x.min(self.width as i32 - 1)) {
                 let point = Point {x, y};
-                if filler.should_draw(point) {
-                    self.set(x as u32, y as u32, filler.color(point));
+                if let color = color_func(point) {
+                    self.set(x as u32, y as u32, color);
                 }
             }
         }
@@ -327,82 +384,163 @@ pub trait Rasterize {
 }
 
 
-pub trait ParFill {
-    fn color(&self, point: Point) -> RGB;
-    fn should_draw(&mut self, _point: Point) -> bool {
-        true
+pub trait ColorFunc {
+    fn color_at(&mut self, point: Point) -> Option<RGB>;
+}
+
+impl <T: Fn(Point) -> Option<RGB>> ColorFunc for T {
+    fn color_at(&mut self, point: Point) -> Option<RGB> {
+        self.call(point)
     }
 }
 
 
-pub trait TranslateCoords {
-    fn translate_coords(&self, point: Point) -> BasicPoint<f64>;
+pub trait OrigColorFunc {
+    fn color_at(&mut self, point: BasicPoint<f64>) -> Option<RGB>;
 }
 
-
-pub struct CoordsTranslator {
-    origin: Point,
-    basis: Basis<f64>,
-}
-
-impl CoordsTranslator {
-    pub fn new(tri: Triangle) -> Self {
-        CoordsTranslator {
-            origin: tri.a,
-            basis: CoordsTranslator::triangle_to_basis(tri),
-        }
-    }
-
-    fn triangle_to_basis(tri: Triangle) -> Basis<f64> {
-        let u = (tri.b - tri.a).map(&|x| x as f64);
-        let v = (tri.c - tri.a).map(&|x| x as f64);
-        let matrix = Matrix2d::from_columns(u.into(), v.into());
-        Basis::new(matrix)
-    }
-}
-
-impl TranslateCoords for CoordsTranslator {
-    fn translate_coords(&self, point: Point) -> BasicPoint<f64> {
-        BasicPoint::from(self.basis.coords_of((point - self.origin).map(&|x| x as f64)))
+impl<T: Fn(BasicPoint<f64>) -> Option<RGB>> OrigColorFunc for T {
+    fn color_at(&mut self, point: BasicPoint<f64>) -> Option<RGB> {
+        self.call(point)
     }
 }
 
 
-struct ParFillDepthBufferAdapter<'a, Filler> {
-    tri_depths: (f64, f64, f64),
-    filler: Filler,
-    depth_buffer: &'a mut DepthBuffer,
+struct CoordsTranslationAdapter<'a, F: OrigColorFunc> {
+    color_func: F,
+    triangle: Triangle3d,
+    triangle_on_screen: Triangle,
+    basis_vecs: (Vector3d, Vector3d),
+    cramer_denom_recip: f64,
+    viewport: &'a Viewport,
+    camera: &'a Camera,
 }
 
-impl<'a, Filler> ParFillDepthBufferAdapter<'a, Filler> {
-    pub fn new(
-        tri_depths: (f64, f64, f64),
-        filler: Filler,
-        depth_buffer: &'a mut DepthBuffer
+impl<F: OrigColorFunc> CoordsTranslationAdapter<'_, F> {
+    pub fn new<'a>(
+        color_func: F,
+        triangle: Triangle3d,
+        triangle_on_screen: Triangle,
+        basis_vecs: (Vector3d, Vector3d),
+        viewport: &'a Viewport,
+        camera: &'a Camera,
     ) -> Self {
-        ParFillDepthBufferAdapter {tri_depths, filler, depth_buffer}
-    }
-}
-
-impl<Filler: TranslateCoords> ParFillDepthBufferAdapter<'_, Filler> {
-    fn get_depth(&self, point: Point) -> f64 {
-        let tri_point = self.filler.translate_coords(point);
-        let base_depth = self.tri_depths.0;
-        let delta_depth_b = self.tri_depths.1 - base_depth;
-        let delta_depth_c = self.tri_depths.2 - base_depth;
-        base_depth + tri_point.x * delta_depth_b + tri_point.y * delta_depth_c
-    }
-}
-
-impl<Filler: ParFill + TranslateCoords> ParFill for ParFillDepthBufferAdapter<'_, Filler> {
-    fn color(&self, point: Point) -> RGB {
-        self.filler.color(point)
-    }
-
-    fn should_draw(&mut self, point: Point) -> bool {
-        if !self.filler.should_draw(point) {
-            return false;
+        let (u, v) = basis_vecs;
+        let basis_matrix_xy = Matrix2d::from_columns(u.onto_xy().into(), v.onto_xy().into());
+        let cramer_denom_recip = basis_matrix_xy.det().recip();
+        Self {
+            color_func,
+            triangle,
+            triangle_on_screen,
+            basis_vecs,
+            cramer_denom_recip,
+            viewport,
+            camera,
         }
-        self.depth_buffer.try_update(point.x as u32, point.y as u32, self.get_depth(point) as f32)
+    }
+
+    // Coords on screen -> coords on triangle
+    pub fn untranslate(&self, point_on_screen: Point) -> BasicPoint<f64> {
+        let projected_3d_point = self.bilinear_untranslate(point_on_screen);
+
+        let s = BasicVector {x: projected_3d_point.x, y: projected_3d_point.y};
+
+        let det_no_u = Matrix2d::from_columns(s.into(), q.into()).det();
+        let det_no_v = Matrix2d::from_columns(p.into(), s.into()).det();
+
+        // Find the coordinates of the projected point w.r.t. p and q using Cramer's rule
+        let u = det_no_u * self.cramer_denom_recip;
+        let v = det_no_v * self.cramer_denom_recip;
+
+        BasicPoint {x: u, y: v}
+    }
+
+    fn bilinear_untranslate(&self, point_on_screen: Point) -> Point3d {
+        let base_line = Line::from_points(self.triangle_on_screen.b, self.triangle_on_screen.c);
+        let pivot_line = Line::from_points(self.triangle_on_screen.a, point_on_screen);
+        let pivot_point = base_line.intersect(pivot_line);
+        let pivot_point_3d = Self::linear_untranslate(
+            pivot_point,
+            (self.triangle_on_screen.b, self.triangle.b),
+            (self.triangle_on_screen.c, self.triangle.c),
+        );
+        let point_3d = Self::linear_untranslate(
+            point_on_screen,
+            (self.triangle_on_screen.a, self.triangle.a),
+            (pivot_point, pivot_point_3d),
+        );
+        point_3d
+    }
+
+    fn linear_untranslate(p: Point, a: (Point, Point3d), b: (Point, Point3d)) -> Point3d {
+        let (a2, a3) = a;
+        let (b2, b3) = a;
+
+        let line = Line3d::from_points(a3, b3);
+        let origin = Point3d::from(Self::onto_screen_plane(p));
+        let vec1 = Vector3d::from(Self::onto_screen_plane((b2 - a2).perp()));
+        let vec2 = origin.as_vector();  // From the origin in the direction of `p`
+        let plane = Plane::from_origin_and_vectors(origin, vec1, vec2);
+
+        plane.intersect(line)
+    }
+
+    fn onto_screen_plane(p: impl Into<(i32, i32)>) -> (f64, f64, f64) {
+        let p = Point::from(p.into());
+        let viewport_agnostic_p = self.viewport.untranslate(p);
+        self.camera.onto_screen_plane(viewport_agnostic_p)
+    }
+}
+
+impl<F: OrigColorFunc> ColorFunc for CoordsTranslationAdapter<'_, F> {
+    fn color_at(&self, point: Point) -> Option<RGB> {
+        let untranslated = self.untranslate(point);
+        self.color_func.color_at(untranslated)
+    }
+}
+
+
+pub trait PointCoords {
+    fn coords_of(&self, point_on_screen: Point) -> f64;
+}
+
+impl<F: OrigColorFunc> PointCoords for CoordsTranslationAdapter<'_, F> {
+    fn coords_of(&self, point_on_screen: Point) -> Point3d {
+        self.bilinear_untranslate(point_on_screen)
+    }
+}
+
+pub trait PointDepth {
+    fn depth_of(&self, point_on_screen: Point) -> f64;
+}
+
+impl<T: PointCoords> PointDepth for T {
+    fn depth_of(&self, point_on_screen: Point) -> f64 {
+        self.coords_of(point_on_screen).as_vector().norm()
+    }
+}
+
+
+struct DepthBufferProxy<'a, F: ColorFunc> {
+    color_func: F,
+    depth_buffer: DepthBuffer<'a>,
+}
+
+impl<'a, F: ColorFunc> DepthBufferProxy<'a, F> {
+    pub fn new(color_func: F, depth_buffer: DepthBuffer<'a>) -> Self {
+        Self {color_func, depth_buffer}
+    }
+}
+
+impl<F: ColorFunc + PointDepth> ColorFunc for DepthBufferProxy<'_, F> {
+    fn color_at(&self, point: Point) -> Option<RGB> {
+        self.depth_buffer.try_coords_from_point(point).and_then(|(x, y)| {
+            let depth = self.depth_of(point);
+            if self.depth_buffer.try_update(x, y, depth) {
+                self.color_func.color_at(point)
+            } else {
+                None
+            }
+        });
     }
 }

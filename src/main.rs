@@ -125,7 +125,22 @@ impl Render for SpinningTriangle {
         let b = Point3d {x:  100.0 * t.cos(), y: -30.0, z: 200.0 + 100.0 * t.sin()};
         let c = Point3d {x: -100.0 * t.cos(), y:  30.0, z: 200.0 - 100.0 * t.sin()};
         let par = Par3d::new(a, b - a, c - a);
-        renderer.fill_parallelogram(par, GradientParFillerConstructor{});
+        renderer.fill_parallelogram(par, |(x, y)| {
+            let BasicPoint {x, y} = self.translate_coords(point);
+            Some(
+                if x < 0.05 && y < 0.05 {
+                    RGB::new(255, 0, 0)
+                } else if x > 0.95 && y < 0.05 {
+                    RGB::new(0, 255, 0)
+                } else if x < 0.05 && y > 0.95 {
+                    RGB::new(0, 0, 255)
+                } else if x > 0.95 && y > 0.95 {
+                    RGB::new(255, 255, 0)
+                } else {
+                    RGB::new(100, 100, 100)
+                }
+            )
+        });
     }
 }
 
